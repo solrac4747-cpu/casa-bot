@@ -1,0 +1,26 @@
+name: Recordatorios de la casa
+on:
+  schedule:
+    - cron: "10 * * * *"        # cada hora; el script decide si toca enviar
+  workflow_dispatch:
+    inputs:
+      prueba:
+        description: "Enviar mensaje de prueba"
+        type: boolean
+        default: false
+jobs:
+  recordar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node recordatorios.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
+          GRUPO_ID: ${{ secrets.GRUPO_ID }}
+          TELEFONOS: ${{ secrets.TELEFONOS }}
+          PRUEBA: ${{ inputs.prueba }}
