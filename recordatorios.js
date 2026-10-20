@@ -73,7 +73,7 @@ function planear(DB, now) {
     const rent = arr((DB["mes-" + now.month] || {}).rent);
     const pend = H.filter((h, i) => !rent[i]);
     if (pend.length) {
-      out.push({ key: `${now.month}-renta`, texto: `📅 Recordatorio de renta: hoy es 4 y la renta se paga antes del día 5. Encargado de cobrar este mes: ${tk(monthBoss(now.month))}. Todavía no aparecen como pagados: ${pend.join(", ")}. Márquenlo en la app cuando paguen.` });
+      out.push({ key: `${now.month}-renta`, texto: `📅 Recordatorio de renta: hoy es 4 y la renta se paga a más tardar el día 5. Encargado de cobrar este mes: ${tk(monthBoss(now.month))}. Todavía no aparecen como pagados: ${pend.join(", ")}. Márquenlo en la app cuando paguen.` });
     }
   }
   return out;
