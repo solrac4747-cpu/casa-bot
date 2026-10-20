@@ -16,7 +16,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node recordatorios.js
+      - name: Ver archivos del repositorio
+        run: ls -la
+      - name: Ejecutar bot
+        run: |
+          ARCHIVO=$(find . -iname 'recordatorios*.js' -not -path './node_modules/*' | head -n 1)
+          if [ -z "$ARCHIVO" ]; then echo "No se encontro recordatorios.js en el repositorio"; exit 1; fi
+          echo "Usando $ARCHIVO"
+          node "$ARCHIVO"
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
