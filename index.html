@@ -506,29 +506,26 @@ function render(local) {
   const r = arr(M.rent);
   const late = viewMonth < curMonth() || (viewMonth === curMonth() && new Date().getDate() >= 5);
   const rentAlert = late && r.some(x => !x) ? `<div class="mt-3 p-3 bg-red-50 border border-red-300 rounded-lg text-sm font-bold text-red-700">⚠️ Renta atrasada: ya pasó el día 5 y falta pagar: ${H.filter((h, i) => !r[i]).join(", ")}.</div>` : r.every(Boolean) ? `<div class="mt-3 p-3 bg-green-50 border border-green-300 rounded-lg text-sm font-bold text-green-700">🎉 ¡Vamos muy bien! Ya pagaron todos la renta.</div>` : "";
-  /* Lo que debe cada persona en servicios del mes que se está viendo (Internet, Luz, Agua, Gas y recibos variables). */
-  const debe = H.map((h, i) => {
-    let t = 0;
-    [["internet", 225], ["luz"], ["agua"], ["gas"]].forEach(([k, fx]) => { const q = fx || ((M.tot || {})[k] || 0) / 4; if (q && !arr((M.svc || {})[k])[i]) t += q; });
-    (M.rec || []).forEach(x => { if (!arr(x.paid)[i]) t += x.m / 4; });
-    return t;
-  });
-  const faltanSvc = H.map((h, i) => ({ h, t: debe[i] })).filter(x => x.t > 0.004);
-  const svcAlert = faltanSvc.length
-    ? `<div class="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-lg text-sm font-bold text-amber-800">⚠️ Faltan por pagar servicios: ${faltanSvc.map(x => `${esc(x.h)} ($${x.t.toFixed(2)})`).join(", ")}.</div>`
-    : `<div class="mt-3 p-3 bg-green-50 border border-green-300 rounded-lg text-sm font-bold text-green-700">🎉 ¡Servicios al corriente! Ya pagaron todos sus servicios de este mes.</div>`;
   const cr = arr((DB["mes-" + curMonth()] || {}).rent), bar = $("alert-bar");
   const pendNow = new Date().getDate() >= 5 ? H.filter((h, i) => !cr[i]) : [];
   const cm = DB["mes-" + curMonth()] || {};
-  const svcLate = [["internet", "Internet", 225], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].map(([k, n, fx]) => {
-    const dd = daysTo((cm.due || {})[k]);
-    return dd !== null && dd < 0 && arr((cm.svc || {})[k]).some(x => !x) && (fx || ((cm.tot || {})[k] || 0) > 0) ? `${n} (${-dd} d)` : null;
+  /* Servicios pendientes del mes en curso, por persona y por servicio (solo cuotas > $0). */
+  const money = m => "$" + (Math.abs(m - Math.round(m)) < 0.005 ? Math.round(m) : m.toFixed(2));
+  const svcPend = H.map((h, i) => {
+    const items = [];
+    [["internet", "Internet", 225], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].forEach(([k, n, fx]) => {
+      const q = fx || ((cm.tot || {})[k] || 0) / 4;
+      if (q > 0 && !arr((cm.svc || {})[k])[i]) items.push(`${n}: ${money(q)}`);
+    });
+    (cm.rec || []).forEach(x => { const q = (x.m || 0) / 4; if (q > 0 && !arr(x.paid)[i]) items.push(`${x.n}: ${money(q)}`); });
+    return items.length ? `${h} (${items.join(", ")})` : null;
   }).filter(Boolean);
   const allNow = cr.every(Boolean), msgs = [];
-  if (pendNow.length) msgs.push(`Renta atrasada (ya pasó el día 5): falta ${pendNow.join(", ")}`);
-  if (svcLate.length) msgs.push(`Servicios atrasados: ${svcLate.join(", ")}`);
-  bar.className = `${msgs.length || allNow ? "" : "hidden "}${msgs.length ? "bg-red-600" : "bg-green-600"} text-white text-xs font-bold text-center px-3 py-2`;
-  bar.textContent = msgs.length ? "⚠️ " + msgs.join(" · ") : allNow ? "🎉 ¡Vamos muy bien! Ya pagaron todos la renta de este mes" : "";
+  if (pendNow.length) msgs.push(`⚠️ Renta atrasada (ya pasó el día 5): falta ${pendNow.join(", ")}`);
+  if (svcPend.length) msgs.push(`⚠️ Servicios pendientes: ${svcPend.join(" · ")}`);
+  const todoOk = allNow && !svcPend.length;
+  bar.className = `${msgs.length || todoOk ? "" : "hidden "}${pendNow.length ? "bg-red-600" : msgs.length ? "bg-amber-600" : "bg-green-600"} text-white text-xs font-bold text-center px-3 py-2 whitespace-pre-line`;
+  bar.textContent = msgs.length ? msgs.join("\n") : todoOk ? "🎉 ¡Vamos muy bien! Ya pagaron todos la renta y los servicios de este mes" : "";
   const mb = monthBoss(viewMonth), ra = (DB.cuentas || {})[mb] || {};
   const rentAcct = `<div class="relative mt-3 p-3 pr-20 bg-emerald-50 border border-emerald-200 rounded-lg text-sm"><div class="absolute top-3 right-3">${getBankLogo(ra.bank)}</div><p class="text-xs font-bold text-emerald-700 uppercase">Depositar a ${H[mb]}</p>` + ((ra.bank || ra.num) ? `<p class="mt-1">🏦 ${esc(ra.bank || "Banco sin capturar")}</p><p>Beneficiario: <b>${esc(ra.ben || "sin capturar")}</b></p><p>CLABE: <span class="font-mono font-bold break-all">${esc(ra.num || "sin capturar")}</span></p>${ra.num ? `<button onclick="copyNum(${mb})" class="mt-2 mr-2 bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">Copiar CLABE</button>` : ""}` : `<p class="mt-1 text-xs text-gray-600">Aún no hay datos de cuenta.</p>`) + `<button onclick="cuentasOpen = true; switchTab('compras'); render(true)" class="mt-2 bg-white border border-emerald-300 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg">Editar datos</button></div>`;
   $("renta").innerHTML = mNav()
@@ -537,7 +534,7 @@ function render(local) {
       ${bossSel(monthBoss(viewMonth), "setMonthBoss", "text-lg font-bold text-emerald-900")}
       <p class="text-xs text-gray-500 mt-1">Todos le depositan su renta al encargado.</p></div>
       <div class="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs font-semibold text-amber-800">📅 La renta se paga antes del día 5 de cada mes.</div>${rentAcct}
-      ${rentAlert}${svcAlert}
+      ${rentAlert}
       <p class="text-xs font-bold text-gray-500 uppercase mt-3 mb-2">Ya pagó</p>
       <div class="space-y-2">${H.map((h, i) => cb(r[i], `setRent(${i})`, h, (late && !r[i] ? '<span class="text-xs font-bold text-red-600">Pendiente</span>' : "") + chip(concepto("RENTA", i)))).join("")}</div>
       <button onclick="armClear('rent')" class="w-full mt-4 ${armed === "rent" ? "bg-red-600 text-white" : "bg-gray-200 text-gray-700"} font-medium py-2 rounded-lg text-sm">${armed === "rent" ? "Toca otra vez para confirmar" : "Limpiar pagos de este mes"}</button>`)
@@ -553,6 +550,12 @@ function render(local) {
   const carlosInfo = (cc.bank || cc.num)
     ? `<div class="relative mt-3 bg-white/20 rounded-lg p-2.5 pr-20 text-sm"><div class="absolute top-2 right-2">${getBankLogo(cc.bank)}</div><p>🏦 ${esc(cc.bank || "Banco sin capturar")}</p><p class="font-mono font-bold break-all mt-0.5">${esc(cc.num || "Número sin capturar")}</p>${cc.num ? `<button onclick="copyNum(${ci})" class="mt-2 bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg">Copiar número</button>` : ""}</div>`
     : `<p class="text-xs text-blue-100 mt-2">Carlos todavía no captura su cuenta.</p><button onclick="cuentasOpen = true; switchTab('compras'); render(true)" class="mt-2 bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg">Capturarla en Compras</button>`;
+  const debe = H.map((h, i) => {
+    let t = 0;
+    [["internet", 225], ["luz"], ["agua"], ["gas"]].forEach(([k, fx]) => { const q = fx || ((M.tot || {})[k] || 0) / 4; if (q && !arr((M.svc || {})[k])[i]) t += q; });
+    (M.rec || []).forEach(x => { if (!arr(x.paid)[i]) t += x.m / 4; });
+    return t;
+  });
   const totCard = card(`<h3 class="font-bold text-gray-800 mb-2">Resumen por persona</h3><div class="grid grid-cols-2 gap-2">${H.map((h, i) => `<div class="rounded-lg p-2 text-center border ${debe[i] > 0 ? "bg-red-50 border-red-300" : "bg-green-50 border-green-300"}"><p class="text-xs font-semibold text-gray-700">${h}</p><p class="text-lg font-black ${debe[i] > 0 ? "text-red-600" : "text-green-600"}">$${debe[i].toFixed(2)}${debe[i] > 0 ? "" : " ✓"}</p></div>`).join("")}</div>`);
   const recCard = card(`<h3 class="font-bold text-gray-800">Recibos variables</h3><div class="space-y-2 mt-2"><input type="text" value="${esc(recF.n)}" onchange="recF.n=this.value" placeholder="Nombre (ej. Luz CFE, Gas)" class="w-full border border-gray-300 rounded p-2 text-sm"><div class="grid grid-cols-2 gap-2"><input type="number" inputmode="decimal" value="${recF.m}" onchange="recF.m=this.value" placeholder="Monto total" class="border border-gray-300 rounded p-2 text-sm"><input type="date" value="${recF.due}" onchange="recF.due=this.value" class="border border-gray-300 rounded p-2 text-sm"></div>${sel(recF.enc, "recF.enc=this.value")}<p class="text-xs text-gray-500">Arriba: encargado que recibe los depósitos.</p><button onclick="addRec()" class="w-full bg-purple-600 text-white font-medium py-2 rounded-lg text-sm">Agregar recibo</button></div>` + (M.rec || []).map(x => {
     const pd = arr(x.paid), owe = H.filter((h, i) => !pd[i]), ea = (DB.cuentas || {})[x.enc] || {};
