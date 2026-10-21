@@ -200,3 +200,20 @@ async function main() {
 
 module.exports = { planear, armar, ahora };
 if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
+
+
+async function setOffline() {
+  try {
+    const res = await fetch("https://gate.whapi.cloud/presences/me", {
+      method: "PUT",
+      headers: {
+        "Authorization": "Bearer swDykSE3sGvkUrAmGwSF2FPDb6WGOiyt",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ presence: "offline" })
+    });
+    console.log("Estado de presencia offline:", res.status);
+  } catch (err) {
+    console.error("Error al fijar offline en Whapi:", err);
+  }
+}
