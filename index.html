@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Control de la Casa</title>
+<meta name="theme-color" content="#4f46e5">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mi Casa">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  :root { color-scheme: light; }
+  body { background: #f3f4f6; padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+  header { padding-top: calc(1rem + env(safe-area-inset-top, 0px)); }
+  nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .tab-content > * + * { margin-top: 1rem; }
+</style>
+</head>
+<body class="font-sans min-h-screen">
+<header class="bg-indigo-600 text-white px-4 pb-4 shadow-md sticky top-0 z-50">
+  <h1 class="text-xl font-bold text-center">Control de la Casa</h1>
+  <p class="text-xs text-center text-indigo-200 mt-1">Bryan/Uriel • Ricardo • Carlos • Erick</p>
+  <p id="sync-status" class="text-[11px] text-center text-indigo-200 mt-1">Solo en este dispositivo</p>
+</header>
+<div id="alert-bar" class="hidden bg-red-600 text-white text-xs font-bold text-center px-3 py-2"></div>
+<main class="max-w-md mx-auto p-4">
+  <section id="turnos" class="tab-content active"></section>
+  <section id="renta" class="tab-content"></section>
+  <section id="servicios" class="tab-content"></section>
+  <section id="compras" class="tab-content">
+    <div id="nav-compras"></div>
+    <div class="bg-white p-4 rounded-xl shadow">
+      <h2 class="text-lg font-bold text-gray-800 mb-2">Nueva compra opcional</h2>
+      <div class="space-y-2">
+        <input id="shop-concept" type="text" class="w-full border border-gray-300 rounded-lg p-2 text-sm" placeholder="Concepto (ej. papel de baño)">
+        <input id="shop-amount" type="number" inputmode="decimal" class="w-full border border-gray-300 rounded-lg p-2 text-sm" placeholder="Monto total ($)">
+        <select id="shop-buyer" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white"></select>
+        <button onclick="addShop()" class="w-full bg-rose-600 text-white font-medium py-2 rounded-lg text-sm">Añadir y dividir entre 4</button>
+      </div>
+    </div>
+    <div class="bg-white p-4 rounded-xl shadow">
+      <div class="flex justify-between items-center mb-2">
+        <h2 class="text-lg font-bold text-gray-800">Lista de compras</h2>
+        <button id="clear-shop-btn" onclick="armClear('shop')" class="text-xs font-bold text-rose-600">Limpiar lista</button>
+      </div>
+      <div id="shop-list" class="space-y-3"></div>
+    </div>
+    <div id="cuentas-card"></div>
+  </section>
+</main>
+<div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 bg-gray-900 text-white text-sm font-semibold px-4 py-2 rounded-full z-[60]"></div>
+<nav class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 grid grid-cols-4 z-50">
+  <button onclick="switchTab('turnos')" class="py-2 text-xs font-medium text-indigo-600"><div class="text-xl">📋</div>Turnos</button>
+  <button onclick="switchTab('renta')" class="py-2 text-xs font-medium text-gray-500"><div class="text-xl">💵</div>Renta</button>
+  <button onclick="switchTab('servicios')" class="py-2 text-xs font-medium text-gray-500"><div class="text-xl">💧</div>Servicios</button>
+  <button onclick="switchTab('compras')" class="py-2 text-xs font-medium text-gray-500"><div class="text-xl">🛒</div>Compras</button>
+</nav>
+
+<script>
+const SUPABASE_URL = "https://qopinzgdnczovxyllhvi.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcGluemdkbmN6b3Z4eWxsaHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0NTU1OTMsImV4cCI6MjEwODAzMTU5M30.c5gDmk0N3-07ZpiOEuhzJPBpVZm16hT0pITLibumDIg";
+
+const H = ["Bryan/Uriel", "Ricardo", "Carlos", "Erick"];
+const DUENA = { n: "Sra. Rubi", b: "Banamex", c: "002027435900086068" };
+const MES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const KEY = "control-casa-hist-v1";
+const BTN = "bg-white shadow rounded-lg py-2 font-bold text-indigo-700";
+const F4 = () => [false, false, false, false];
+const arr = a => (a && a.length === 4 ? a : F4());
+const pad = n => String(n).padStart(2, "0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const mondayOf = d => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x; };
+const curMonth = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const mod4 = n => ((n % 4) + 4) % 4;
+const mIdx = m => { const [y, n] = m.split("-").map(Number); return y * 12 + n - 1; };
+
+let DB = {}, sb = null, timer = null, writing = false;
+let viewWeek = ymd(mondayOf(new Date())), viewMonth = curMonth();
+const dirty = new Set();
+const $ = id => document.getElementById(id);
+const setStatus = t => $("sync-status").innerText = t;
+
+const G = () => DB.global || (DB.global = { water: 0, aW: ymd(mondayOf(new Date())), aB: 0, aM: curMonth(), aR: 0 });
+function weekBoss(w) {
+  const W = DB["sem-" + w]; if (W && W.boss != null) return W.boss;
+  const g = G(); let bw = g.aW, bb = g.aB;
+  for (const k in DB) {
+    if (k.startsWith("sem-") && DB[k].boss != null) { const d = k.slice(4); if (d < w && d >= bw) { bw = d; bb = DB[k].boss; } }
+  }
+  return mod4(bb + Math.round((new Date(w + "T00:00") - new Date(bw + "T00:00")) / 6048e5));
+}
+function monthBoss(m) {
+  const M = DB["mes-" + m]; if (M && M.boss != null) return M.boss;
+  const g = G(); let bm = g.aM, bb = g.aR;
+  for (const k in DB) {
+    if (k.startsWith("mes-") && DB[k].boss != null) { const d = k.slice(4); if (d < m && d >= bm) { bm = d; bb = DB[k].boss; } }
+  }
+  return mod4(bb + mIdx(m) - mIdx(bm));
+}
+
+/* ---------- Basura: falta calculada con la fecha de hoy ---------- */
+const addDays = (str, n) => { const d = new Date(str + "T00:00"); d.setDate(d.getDate() + n); return ymd(d); };
+const daysTo = d => d ? Math.round((new Date(d + "T00:00") - new Date(ymd(new Date()) + "T00:00")) / 864e5) : null;
+const passed = (w, off) => ymd(new Date()) > addDays(w, off);
+function missed(w, k) {
+  const W = DB["sem-" + w] || {};
+  return w >= G().aW && !W[k === "L" ? "basuraLun" : "basuraJue"] && passed(w, k === "L" ? 0 : 3);
+}
+const hoyStr = () => ymd(new Date());
+/* ===== NÚCLEO DE BASURA (idéntico en la app y en el bot) ===== */
+let SIM = null;
+const rangos = () => (DB.ausencias || {}).r || [];
+const away = (p, d) => rangos().some(x => x.p === p && d >= x.d1 && d <= x.d2);
+function slots() {
+  if (SIM) return SIM;
+  const g = G(), S = {}, deudas = [], last = addDays(hoyStr(), 7 * 60);
+  for (let w = g.aW; w <= last; w = addDays(w, 7)) {
+    const W = DB["sem-" + w] || {}, p = addDays(w, -7), boss = weekBoss(w);
+    ["L", "J"].forEach(k => {
+      const date = k === "L" ? w : addDays(w, 3), sw = W[k === "L" ? "swapLun" : "swapJue"];
+      let base = boss;
+      if (p >= g.aW) {
+        if (k === "L") base = missed(p, "L") ? S[p + "L"].o : missed(p, "J") ? S[p + "J"].o : boss;
+        else base = missed(p, "L") && missed(p, "J") ? S[p + "J"].o : boss;
+      }
+      let o = sw != null ? sw : base;
+      const s = { base, date, swap: sw != null };
+      const d = sw == null ? deudas.find(x => !x.pagada && x.acreedor === o && x.date < date && !away(x.deudor, date)) : null;
+      if (d) { d.pagada = date; s.repone = { acreedor: o, deudor: d.deudor }; o = d.deudor; }
+      if (away(o, date)) {
+        let c = mod4(o + 1), n = 0;
+        while (away(c, date) && n++ < 3) c = mod4(c + 1);
+        if (c !== o) { deudas.push({ deudor: o, acreedor: c, date, pagada: null }); s.cubre = { titular: o }; o = c; }
+      }
+      s.o = o; S[w + k] = s;
+    });
+  }
+  return (SIM = { S, deudas });
+}
+const monOwner = w => { const x = slots().S[w + "L"]; return x ? x.o : weekBoss(w); };
+const thuOwner = w => { const x = slots().S[w + "J"]; return x ? x.o : weekBoss(w); };
+const deudaBasura = () => slots().deudas.filter(x => !x.pagada);
+
+/* ---------- Guardado y sincronización ---------- */
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {}
+  clearTimeout(timer); timer = setTimeout(flush, 400);
+}
+async function flush() {
+  if (!sb || !dirty.size) return;
+  if (writing) { timer = setTimeout(flush, 400); return; }
+  writing = true;
+  const ids = [...dirty]; dirty.clear();
+  try {
+    const { error } = await sb.from("estado").upsert(ids.map(id => ({ id, data: DB[id], updated_at: new Date().toISOString() })));
+    if (error) throw error;
+  } catch (e) { ids.forEach(i => dirty.add(i)); setStatus("No se pudo guardar: " + (e.message || e)); }
+  writing = false;
+}
+function mut(id, fn) {
+  const d = id === "global" ? G() : (DB[id] = DB[id] || {});
+  fn(d); dirty.add(id); persist(); render(true);
+}
+function migrate(old) {
+  const f = old.fields || {}, wk = ymd(mondayOf(new Date())), mo = curMonth(), b = k => !!f[k];
+  DB.global = { water: old.idxAgua || 0, aW: wk, aB: old.idxSemana || 0, aM: mo, aR: old.idxRenta || 0 };
+  DB["sem-" + wk] = { basura: b("task-basura"), limpieza: b("task-limpieza") };
+  const M = { rent: [0, 1, 2, 3].map(i => b("rentpaid-" + i)), svc: {}, tot: {}, shop: (old.itemsCompras || []).map(x => ({ id: x.id, c: x.concepto, m: x.monto, b: x.comprador, paid: arr(x.paid) })) };
+  ["internet", "luz", "agua", "gas"].forEach(k => {
+    M.svc[k] = [0, 1, 2, 3].map(i => b(`svc-${k}-${i}`));
+    if (k !== "internet") M.tot[k] = parseFloat(f[k + "-total"]) || 0;
+  });
+  DB["mes-" + mo] = M;
+  ["global", "sem-" + wk, "mes-" + mo].forEach(i => dirty.add(i));
+}
+async function initShared() {
+  try {
+    if (!window.supabase || SUPABASE_URL.startsWith("PEGA")) { setStatus("Falta configurar Supabase"); return; }
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const { data, error } = await sb.from("estado").select("id,data");
+    if (error) throw error;
+    const R = {}; let old = null;
+    data.forEach(r => {
+      if (r.id === "casa") { old = r.data; return; }
+      if (r.data && Object.keys(r.data).length) R[r.id] = r.data;
+    });
+    Object.keys(DB).forEach(id => { if (!R[id]) dirty.add(id); });
+    Object.assign(DB, R);
+    if (!R.global && !DB.global && old && old.fields) migrate(old);
+    if (!DB.global) { G(); dirty.add("global"); }
+    persist(); render(true);
+    sb.channel("estado-casa")
+      .on("postgres_changes", { event: "*", schema: "public", table: "estado" }, p => {
+        const r = p.new; if (!r || !r.id || r.id === "casa" || dirty.has(r.id) || !r.data || !Object.keys(r.data).length) return;
+        DB[r.id] = r.data; try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} render();
+      })
+      .subscribe(st => {
+        if (st === "SUBSCRIBED") setStatus("● Compartido en tiempo real");
+        else if (st === "CHANNEL_ERROR" || st === "TIMED_OUT") setStatus("Guarda en la nube, pero sin tiempo real (" + st + ")");
+      });
+  } catch (e) { sb = null; setStatus("Error: " + ((e && (e.message || e.details)) || String(e))); }
+}
+
+/* ---------- Acciones ---------- */
+function switchTab(t) {
+  document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+  $(t).classList.add("active");
+  document.querySelectorAll("nav button").forEach(b => {
+    const on = b.getAttribute("onclick").includes(`'${t}'`);
+    b.classList.toggle("text-indigo-600", on); b.classList.toggle("text-gray-500", !on);
+  });
+}
+function navWeek(n) { const d = new Date(viewWeek + "T00:00"); d.setDate(d.getDate() + 7 * n); viewWeek = ymd(d); render(true); }
+function jumpWeek(v) { if (v) { viewWeek = ymd(mondayOf(new Date(v + "T00:00"))); render(true); } }
+function navMonth(n) { const [y, m] = viewMonth.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); viewMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; render(true); }
+function jumpMonth(v) { if (v) { viewMonth = v; render(true); } }
+const W_ = () => "sem-" + viewWeek, M_ = () => "mes-" + viewMonth;
+function setWeekBoss(v) { mut(W_(), d => d.boss = +v); }
+function toggleTask(k) { mut(W_(), d => d[k] = !d[k]); }
+function water(n) { mut("global", d => d.water = mod4((d.water || 0) + n)); }
+function setMonthBoss(v) { mut(M_(), d => d.boss = +v); }
+function setRent(i) { mut(M_(), d => { d.rent = arr(d.rent); d.rent[i] = !d.rent[i]; }); }
+let armed = null, toastT = null;
+function toast(m) { const t = $("toast"); t.textContent = m; t.classList.remove("hidden"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add("hidden"), 2200); }
+function arm(k, fn) {
+  if (armed === k) { armed = null; fn(); return; }
+  armed = k; render(true);
+  setTimeout(() => { if (armed === k) { armed = null; render(true); } }, 4000);
+}
+function armClear(k) {
+  if (armed === k) {
+    armed = null;
+    mut(M_(), d => { if (k === "rent") d.rent = F4(); else d.shop = []; });
+    toast(k === "rent" ? "Pagos del mes limpiados" : "Lista de compras limpiada");
+    return;
+  }
+  armed = k; render(true);
+  setTimeout(() => { if (armed === k) { armed = null; render(true); } }, 4000);
+}
+function togSvc(k, i) { mut(M_(), d => { d.svc = d.svc || {}; d.svc[k] = arr(d.svc[k]); d.svc[k][i] = !d.svc[k][i]; }); }
+function garr(a) {
+  mut("garrafones", d => {
+    d.capacidadMaxima = d.capacidadMaxima || 5;
+    d.disponibles = d.disponibles == null ? d.capacidadMaxima : d.disponibles;
+    if (d.ultimaRecarga == null) d.ultimaRecarga = "";
+    if (a === "uso") d.disponibles = Math.max(0, d.disponibles - 1);
+    else if (a === "recarga") { d.disponibles = d.capacidadMaxima; d.ultimaRecarga = ymd(new Date()); d.alertaEnviada = false; }
+    else d.disponibles = Math.min(d.capacidadMaxima, Math.max(0, d.disponibles + a));
+    if (d.disponibles > 1 || d.alertaEnviada == null) d.alertaEnviada = false;
+  });
+  clearTimeout(timer); flush();
+}
+function ceder() {
+  const { date, to, both } = swapF, dw = date ? new Date(date + "T00:00").getDay() : -1;
+  if (dw !== 1 && dw !== 4) { toast("Elige una fecha que sea lunes o jueves"); return; }
+  const w = ymd(mondayOf(new Date(date + "T00:00")));
+  mut("sem-" + w, d => { if (both || dw === 1) d.swapLun = +to; if (both || dw === 4) d.swapJue = +to; });
+  toast("Cambio guardado");
+}
+function quitarCambio(k) { mut(W_(), d => { delete d[k === "L" ? "swapLun" : "swapJue"]; }); }
+function addAus() {
+  const { p, d1, d2 } = ausF;
+  if (!d1 || !d2 || d2 < d1) { toast("Elige fechas válidas (desde ≤ hasta)"); return; }
+  mut("ausencias", d => { d.r = d.r || []; d.r.push({ id: Date.now(), p: +p, d1, d2 }); });
+  toast("Ausencia registrada");
+}
+function delAus(id) { arm("aus" + id, () => mut("ausencias", d => { d.r = (d.r || []).filter(x => x.id !== id); })); }
+function addRec() {
+  const f = { ...recF }, m = parseFloat(f.m) || 0;
+  if (!f.n.trim() || m <= 0 || !f.due) { toast("Escribe nombre, monto y fecha límite"); return; }
+  recF = { n: "", m: "", due: "", enc: f.enc };
+  mut(M_(), d => { d.rec = d.rec || []; d.rec.push({ id: Date.now(), n: f.n.trim(), m, due: f.due, enc: +f.enc, paid: F4() }); });
+}
+function togRec(id, i) { mut(M_(), d => { const r = (d.rec || []).find(x => x.id === id); if (r) { r.paid = arr(r.paid); r.paid[i] = !r.paid[i]; } }); }
+function delRec(id) { arm("rec" + id, () => mut(M_(), d => { d.rec = (d.rec || []).filter(x => x.id !== id); })); }
+function setDue(k, v) { mut(M_(), d => { d.due = d.due || {}; d.due[k] = v; }); }
+function setTot(k, v) { mut(M_(), d => { d.tot = d.tot || {}; d.tot[k] = parseFloat(v) || 0; }); }
+function liveQ(k, v) {
+  const q = (parseFloat(v) || 0) / 4;
+  document.querySelectorAll(".qn-" + k).forEach(e => e.textContent = q.toFixed(2));
+  document.querySelectorAll(".qd-" + k).forEach(e => e.textContent = "$" + q.toFixed(2));
+}
+function addShop() {
+  const c = $("shop-concept").value.trim(), m = parseFloat($("shop-amount").value) || 0;
+  if (!c || m <= 0) { toast("Escribe un concepto y un monto mayor a 0"); return; }
+  const b = $("shop-buyer").value;
+  mut(M_(), d => { d.shop = d.shop || []; d.shop.push({ id: Date.now(), c, m, b, paid: F4() }); });
+  $("shop-concept").value = ""; $("shop-amount").value = "";
+}
+function togPaid(id, i) { mut(M_(), d => { const it = (d.shop || []).find(x => x.id === id); if (it) { it.paid = arr(it.paid); it.paid[i] = !it.paid[i]; } }); }
+
+/* ---------- Pantallas ---------- */
+const MES3 = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
+const limpio = s => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
+const nomCorto = i => limpio(H[i].split("/")[0]);
+const concepto = (svc, i) => `${limpio(svc)} ${MES3[+viewMonth.slice(5) - 1]} ${nomCorto(i)}`;
+const chip = t => `<button type="button" onclick="event.preventDefault();copiarChip(this,'${t}')" class="font-mono text-[11px] leading-none bg-gray-100 border border-gray-300 rounded px-1.5 py-1 text-gray-700 whitespace-nowrap">${t}</button>`;
+function copiarChip(b, t) {
+  const old = b.textContent, ok = () => { b.textContent = "✓ Copiado"; b.classList.add("bg-green-100", "text-green-700"); setTimeout(() => { b.textContent = old; b.classList.remove("bg-green-100", "text-green-700"); }, 1500); };
+  try { navigator.clipboard.writeText(t).then(ok, () => prompt("Copia el concepto:", t)); } catch (e) { prompt("Copia el concepto:", t); }
+}
+const BANCOS = [[/bbva/, "BBVA", "#004481"], [/santander/, "Santander", "#EC0000"], [/banorte/, "Banorte", "#EB0029"], [/citi|banamex/, "Citibanamex", "#056DAE"], [/hsbc/, "HSBC", "#DB0011"], [/mercado/, "MP", "#00A8E8"], [/hey/, "hey", "#00B67A"], [/scotia/, "Scotia", "#EC111A"], [/azteca/, "Azteca", "#00843D"], [/spin|oxxo/, "Spin", "#E4002B"], [/(^|\s)nu(\s|$)/, "nu", "#820AD1"]];
+const getBankLogo = nombre => {
+  const n = String(nombre || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const b = BANCOS.find(x => x[0].test(n));
+  if (!b) return `<span class="text-xl leading-none" title="Banco">🏦</span>`;
+  const w = 16 + 7 * b[1].length;
+  return `<svg class="shrink-0 rounded-md" height="24" width="${w}" viewBox="0 0 ${w} 24" role="img" aria-label="${b[1]}"><rect width="${w}" height="24" rx="5" fill="${b[2]}"/><text x="${w / 2}" y="16" text-anchor="middle" font-size="11" font-weight="800" font-family="Arial,sans-serif" fill="#fff">${b[1]}</text></svg>`;
+};
+let swapF = { date: "", to: 0, both: false }, ausF = { p: 0, d1: "", d2: "" }, recF = { n: "", m: "", due: "", enc: 2 };
+const sel = (cur, fn) => `<select onchange="${fn}" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">${H.map((h, i) => `<option value="${i}" ${i === +cur ? "selected" : ""}>${h}</option>`).join("")}</select>`;
+const tdesc = dd => dd === null ? "" : dd < 0 ? `<p class="text-xs font-bold text-red-600">⚠️ Atrasado por ${-dd} día${dd === -1 ? "" : "s"}</p>` : dd === 0 ? `<p class="text-xs font-bold text-amber-700">⏰ Vence hoy</p>` : `<p class="text-xs font-semibold ${dd <= 3 ? "text-amber-700" : "text-gray-600"}">Faltan ${dd} día${dd === 1 ? "" : "s"}</p>`;
+const card = (h, x = "") => `<div class="bg-white p-4 rounded-xl shadow ${x}">${h}</div>`;
+const cb = (on, fn, label, extra = "") => `<label class="flex items-center gap-3 bg-gray-50 p-2.5 rounded-lg cursor-pointer"><input type="checkbox" ${on ? "checked" : ""} onchange="${fn}" class="h-5 w-5 rounded"><span class="text-sm font-semibold text-gray-800 flex-1">${label}</span>${extra}</label>`;
+const bossSel = (cur, fn, cls) => `<select onchange="${fn}(this.value)" class="w-full bg-transparent ${cls}">${H.map((h, i) => `<option value="${i}" ${i === cur ? "selected" : ""}>${h}</option>`).join("")}</select>`;
+let cuentasOpen = false;
+function copyText(t) { try { navigator.clipboard.writeText(t).then(() => toast("Copiado"), () => prompt("Copia el número:", t)); } catch (e) { prompt("Copia el número:", t); } }
+function setCuenta(i, k, v) { mut("cuentas", d => { d[i] = d[i] || {}; d[i][k] = v.trim(); }); }
+function copyNum(i) { const n = ((DB.cuentas || {})[i] || {}).num || ""; if (!n) { toast("Aún no hay número guardado"); return; } copyText(n); }
+const payInfo = b => {
+  const i = H.indexOf(b), c = (DB.cuentas || {})[i] || {};
+  return (c.bank || c.num) ? `<p class="text-xs text-gray-700 mt-0.5">🏦 ${esc(c.bank || "")}${c.bank && c.num ? " · " : ""}<span class="font-mono">${esc(c.num || "")}</span>${c.num ? ` <button onclick="copyNum(${i})" class="text-indigo-600 font-bold ml-1">Copiar</button>` : ""}</p>` : "";
+};
+const mNav = () => {
+  const [y, m] = viewMonth.split("-").map(Number);
+  return `<div class="flex items-center gap-2"><button onclick="navMonth(-1)" class="${BTN} w-12 text-xl">‹</button><label class="relative flex-1 text-center bg-white rounded-lg shadow py-2 font-bold text-gray-800">${MES[m - 1]} ${y}<input type="month" value="${viewMonth}" onchange="jumpMonth(this.value)" class="absolute inset-0 w-full opacity-0"></label><button onclick="navMonth(1)" class="${BTN} w-12 text-xl">›</button></div>`
+    + (viewMonth !== curMonth() ? `<button onclick="jumpMonth(curMonth())" class="text-xs text-indigo-600 font-bold w-full text-center mt-1">Ir al mes actual</button>` : "");
+};
+const wNav = () => {
+  const s = new Date(viewWeek + "T00:00"), e = new Date(s); e.setDate(e.getDate() + 6);
+  const sh = d => `${d.getDate()} ${MES[d.getMonth()].slice(0, 3)}`;
+  return `<div class="flex items-center gap-2"><button onclick="navWeek(-1)" class="${BTN} w-12 text-xl">‹</button><label class="relative flex-1 text-center bg-white rounded-lg shadow py-2 font-bold text-gray-800 text-sm">Semana ${sh(s)} – ${sh(e)} ${e.getFullYear()}<input type="date" value="${viewWeek}" onchange="jumpWeek(this.value)" class="absolute inset-0 w-full opacity-0"></label><button onclick="navWeek(1)" class="${BTN} w-12 text-xl">›</button></div>`
+    + (viewWeek !== ymd(mondayOf(new Date())) ? `<button onclick="jumpWeek(ymd(new Date()))" class="text-xs text-indigo-600 font-bold w-full text-center mt-1">Ir a esta semana</button>` : "");
+};
+
+function render(local) {
+  SIM = null;
+  const a = document.activeElement;
+  if (!local && a && a.tagName === "INPUT" && ["number", "text"].includes(a.type)) return;
+  const W = DB["sem-" + viewWeek] || {}, M = DB["mes-" + viewMonth] || {}, g = G();
+
+  const p = addDays(viewWeek, -7), tracked = p >= g.aW;
+  const mo = monOwner(viewWeek), to = thuOwner(viewWeek);
+  const pL = tracked && missed(p, "L"), pJ = tracked && missed(p, "J");
+  const amber = t => `<p class="text-xs text-amber-700 mt-1">${t}</p>`, red = t => `<p class="text-xs text-red-600 mt-1">${t}</p>`;
+  const nota = k => { const x = slots().S[viewWeek + k]; if (!x) return ""; return (x.swap ? amber(`Cambio puntual: lo saca ${H[x.o]} (le tocaba a ${H[x.base]}). <button class="underline font-bold" onclick="quitarCambio('${k}')">Deshacer</button>`) : "") + (x.cubre ? amber(`🧳 ${H[x.o]} cubre a ${H[x.cubre.titular]} (fuera de casa). ${H[x.cubre.titular]} le repone un turno.`) : "") + (x.repone ? amber(`🔁 ${H[x.o]} repone el turno que ${H[x.repone.acreedor]} le cubrió.`) : ""); };
+  const dayRow = (name, owner, dk, extra) => `<div class="bg-gray-50 rounded-lg p-2.5"><label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" ${W[dk] ? "checked" : ""} onchange="toggleTask('${dk}')" class="h-5 w-5 rounded"><span class="flex-1"><span class="block text-sm font-semibold text-gray-800">${name}</span><span class="block text-xs text-gray-600">Le toca a <b>${H[owner]}</b></span></span></label>${extra}${nota(dk === "basuraLun" ? "L" : "J")}</div>`;
+  const monRow = dayRow("Basura sacada · lunes", mo, "basuraLun",
+    (pL && pJ ? amber(`Se recorrió: ${H[mo]} no sacó ni el lunes ni el jueves de la semana pasada.`) : pL ? amber(`Compensación: ${H[mo]} no la sacó el lunes pasado.`) : pJ ? amber(`Compensación: ${H[mo]} no la sacó el jueves pasado.`) : "")
+    + (missed(viewWeek, "L") ? red(`Ya pasó el lunes sin marcarse: ${H[mo]} debe compensar el lunes de la siguiente semana.`) : ""));
+  const thuRow = dayRow("Basura sacada · jueves", to, "basuraJue",
+    (pL && pJ ? amber(`Se recorrió: ${H[to]} no sacó ni el lunes ni el jueves de la semana pasada.`) : "")
+    + (missed(viewWeek, "J") ? red(missed(viewWeek, "L") ? `Tampoco el jueves: ${H[to]} debe compensar el jueves de la siguiente semana (y ${H[mo]} el lunes).` : `Ya pasó el jueves sin marcarse: ${H[to]} debe compensar el lunes de la siguiente semana.`) : ""));
+  const gr = Object.assign({ disponibles: 5, capacidadMaxima: 5, ultimaRecarga: "", alertaEnviada: false }, DB.garrafones || {});
+  const bajo = gr.disponibles <= 1;
+  const garrCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Stock de garrafones</h2><div class="p-3 rounded-lg border ${bajo ? "bg-red-50 border-red-300" : "bg-sky-50 border-sky-200"}"><p class="text-lg font-black ${bajo ? "text-red-700" : "text-sky-900"}">${gr.disponibles} de ${gr.capacidadMaxima} disponibles${bajo ? " ⚠️" : ""}</p><div class="flex gap-1 text-2xl my-1">${Array.from({ length: gr.capacidadMaxima }, (_, i) => `<span class="${i < gr.disponibles ? "" : "opacity-25 grayscale"}">💧</span>`).join("")}</div><p class="text-xs text-gray-500">Última recarga: ${gr.ultimaRecarga || "sin registro"}</p></div><div class="space-y-2 mt-3"><button onclick="garr('uso')" class="w-full ${bajo ? "bg-red-600" : "bg-sky-600"} text-white font-medium py-2 rounded-lg text-sm">Puse un garrafón en el dispensador</button><button onclick="garr('recarga')" class="w-full bg-emerald-600 text-white font-medium py-2 rounded-lg text-sm">Rellenar / Llegó el repartidor</button><div class="grid grid-cols-2 gap-2"><button onclick="garr(-1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">− 1 (corregir)</button><button onclick="garr(1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">+ 1 (corregir)</button></div></div>`);
+  const swapCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-1">Ceder turno de basura</h2><p class="text-xs text-gray-500 mb-2">Cambia un lunes o jueves puntual sin mover la rotación.</p><div class="space-y-2"><input type="date" value="${swapF.date}" onchange="swapF.date=this.value" class="w-full border border-gray-300 rounded-lg p-2 text-sm">${sel(swapF.to, "swapF.to=this.value")}<label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" ${swapF.both ? "checked" : ""} onchange="swapF.both=this.checked" class="h-4 w-4"> Ceder lunes y jueves de esa semana</label><button onclick="ceder()" class="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg text-sm">Ceder turno</button></div>`);
+  const rg = rangos();
+  const ausCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-1">Fuera de casa (solo basura)</h2><div class="space-y-2">${sel(ausF.p, "ausF.p=this.value")}<div class="grid grid-cols-2 gap-2"><input type="date" value="${ausF.d1}" onchange="ausF.d1=this.value" class="border border-gray-300 rounded-lg p-2 text-sm"><input type="date" value="${ausF.d2}" onchange="ausF.d2=this.value" class="border border-gray-300 rounded-lg p-2 text-sm"></div><button onclick="addAus()" class="w-full bg-amber-600 text-white font-medium py-2 rounded-lg text-sm">Registrar ausencia</button></div>` + (rg.length ? `<div class="mt-3 space-y-1">${rg.map(x => `<div class="flex justify-between items-center text-sm bg-gray-50 rounded p-2"><span><b>${H[x.p]}</b> · ${x.d1} → ${x.d2}</span><button onclick="delAus(${x.id})" class="text-xs font-bold ${armed === "aus" + x.id ? "text-white bg-red-600 px-2 py-1 rounded" : "text-red-600"}">${armed === "aus" + x.id ? "Confirmar" : "Quitar"}</button></div>`).join("")}</div>` : ""));
+  const dB = deudaBasura();
+  const deudaCard = dB.length ? card(`<h2 class="text-lg font-bold text-red-700 mb-1">Turnos de basura por reponer</h2>${dB.map(x => `<p class="text-sm text-red-600 font-semibold">${H[x.deudor]} le debe un turno a ${H[x.acreedor]} (cubrió el ${x.date})</p>`).join("")}`) : "";
+  $("turnos").innerHTML = wNav()
+    + card(`<div class="flex justify-between items-center mb-2"><h2 class="text-lg font-bold text-gray-800">Turno semanal</h2><span class="text-sm font-black text-indigo-600">${new Date().toLocaleDateString("es-MX", { weekday: "long" }).toUpperCase()} ${new Date().getDate()}</span></div>
+      <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-lg"><span class="text-xs font-semibold text-indigo-600 uppercase">Responsable de la semana</span>
+      ${bossSel(weekBoss(viewWeek), "setWeekBoss", "text-xl font-black text-indigo-900 mt-0.5")}
+      <p class="text-xs text-gray-500 mt-1">Le paga a Imelda y saca la basura lunes y jueves. Si pasa el día y no se marca, compensa el lunes de la siguiente semana. Si fallan lunes y jueves, se recorren los dos días a la otra semana. Puedes cambiar al responsable si hace falta.</p></div>
+      <div class="mt-3 space-y-2">${monRow}${thuRow}${cb(W.limpieza, "toggleTask('limpieza')", "Pago a Imelda")}</div>`)
+    + card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Fila de garrafones</h2>
+      <div class="p-3 bg-amber-50 border border-amber-100 rounded-lg flex justify-between items-center gap-2">
+      <div><span class="text-xs font-semibold text-amber-700 uppercase">Siguiente por ir</span><p class="text-lg font-bold text-amber-900">${H[mod4(g.water || 0)]}</p></div>
+      <div class="flex flex-col gap-1.5"><button onclick="water(1)" class="bg-amber-600 text-white px-3 py-1.5 text-xs font-bold rounded-lg">¡Ya compré el garrafón!</button>
+      <button onclick="water(-1)" class="bg-gray-200 text-gray-700 px-3 py-1.5 text-xs font-bold rounded-lg">← Regresar turno</button></div></div>`)
+    + garrCard + swapCard + ausCard + deudaCard;
+
+  const r = arr(M.rent);
+  const late = viewMonth < curMonth() || (viewMonth === curMonth() && new Date().getDate() >= 5);
+  const rentAlert = late && r.some(x => !x) ? `<div class="mt-3 p-3 bg-red-50 border border-red-300 rounded-lg text-sm font-bold text-red-700">⚠️ Renta atrasada: ya pasó el día 5 y falta pagar: ${H.filter((h, i) => !r[i]).join(", ")}.</div>` : r.every(Boolean) ? `<div class="mt-3 p-3 bg-green-50 border border-green-300 rounded-lg text-sm font-bold text-green-700">🎉 ¡Vamos muy bien! Ya pagaron todos la renta.</div>` : "";
+  const cr = arr((DB["mes-" + curMonth()] || {}).rent), bar = $("alert-bar");
+  const pendNow = new Date().getDate() >= 5 ? H.filter((h, i) => !cr[i]) : [];
+  const cm = DB["mes-" + curMonth()] || {};
+  const svcLate = [["internet", "Internet", 225], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].map(([k, n, fx]) => {
+    const dd = daysTo((cm.due || {})[k]);
+    return dd !== null && dd < 0 && arr((cm.svc || {})[k]).some(x => !x) && (fx || ((cm.tot || {})[k] || 0) > 0) ? `${n} (${-dd} d)` : null;
+  }).filter(Boolean);
+  const allNow = cr.every(Boolean), msgs = [];
+  if (pendNow.length) msgs.push(`Renta atrasada (ya pasó el día 5): falta ${pendNow.join(", ")}`);
+  if (svcLate.length) msgs.push(`Servicios atrasados: ${svcLate.join(", ")}`);
+  bar.className = `${msgs.length || allNow ? "" : "hidden "}${msgs.length ? "bg-red-600" : "bg-green-600"} text-white text-xs font-bold text-center px-3 py-2`;
+  bar.textContent = msgs.length ? "⚠️ " + msgs.join(" · ") : allNow ? "🎉 ¡Vamos muy bien! Ya pagaron todos la renta de este mes" : "";
+  const mb = monthBoss(viewMonth), ra = (DB.cuentas || {})[mb] || {};
+  const rentAcct = `<div class="relative mt-3 p-3 pr-20 bg-emerald-50 border border-emerald-200 rounded-lg text-sm"><div class="absolute top-3 right-3">${getBankLogo(ra.bank)}</div><p class="text-xs font-bold text-emerald-700 uppercase">Depositar a ${H[mb]}</p>` + ((ra.bank || ra.num) ? `<p class="mt-1">🏦 ${esc(ra.bank || "Banco sin capturar")}</p><p>Beneficiario: <b>${esc(ra.ben || "sin capturar")}</b></p><p>CLABE: <span class="font-mono font-bold break-all">${esc(ra.num || "sin capturar")}</span></p>${ra.num ? `<button onclick="copyNum(${mb})" class="mt-2 mr-2 bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">Copiar CLABE</button>` : ""}` : `<p class="mt-1 text-xs text-gray-600">Aún no hay datos de cuenta.</p>`) + `<button onclick="cuentasOpen = true; switchTab('compras'); render(true)" class="mt-2 bg-white border border-emerald-300 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg">Editar datos</button></div>`;
+  $("renta").innerHTML = mNav()
+    + card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Corte de renta</h2>
+      <div class="p-3 bg-emerald-50 border border-emerald-100 rounded-lg"><span class="text-xs font-semibold text-emerald-700 uppercase">Encargado de cobrar este mes</span>
+      ${bossSel(monthBoss(viewMonth), "setMonthBoss", "text-lg font-bold text-emerald-900")}
+      <p class="text-xs text-gray-500 mt-1">Todos le depositan su renta al encargado.</p></div>
+      <div class="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs font-semibold text-amber-800">📅 La renta se paga antes del día 5 de cada mes.</div>${rentAcct}
+      ${rentAlert}
+      <p class="text-xs font-bold text-gray-500 uppercase mt-3 mb-2">Ya pagó</p>
+      <div class="space-y-2">${H.map((h, i) => cb(r[i], `setRent(${i})`, h, (late && !r[i] ? '<span class="text-xs font-bold text-red-600">Pendiente</span>' : "") + chip(concepto("RENTA", i)))).join("")}</div>
+      <button onclick="armClear('rent')" class="w-full mt-4 ${armed === "rent" ? "bg-red-600 text-white" : "bg-gray-200 text-gray-700"} font-medium py-2 rounded-lg text-sm">${armed === "rent" ? "Toca otra vez para confirmar" : "Limpiar pagos de este mes"}</button>`)
+    + card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Pago de la renta</h2>
+      <div class="p-3 bg-gray-50 border border-gray-200 rounded-lg"><p class="text-sm font-bold text-gray-900">${DUENA.n}</p>
+      <p class="text-sm text-gray-700 mt-0.5">🏦 ${DUENA.b}</p>
+      <p class="text-sm text-gray-700 mt-0.5">CLABE: <span class="font-mono font-bold">${DUENA.c}</span></p>
+      <button onclick="copyText(DUENA.c)" class="mt-2 bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">Copiar CLABE</button></div>`);
+
+  const s = M.svc || {}, t = M.tot || {};
+  const svc = [["internet", "Internet (fijo)", "border-blue-500", 225], ["luz", "Luz (CFE / variable)", "border-yellow-500"], ["agua", "Agua (CESPM / variable)", "border-cyan-500"], ["gas", "Gas (a demanda)", "border-orange-500"]];
+  const ci = H.indexOf("Carlos"), cc = (DB.cuentas || {})[ci] || {};
+  const carlosInfo = (cc.bank || cc.num)
+    ? `<div class="relative mt-3 bg-white/20 rounded-lg p-2.5 pr-20 text-sm"><div class="absolute top-2 right-2">${getBankLogo(cc.bank)}</div><p>🏦 ${esc(cc.bank || "Banco sin capturar")}</p><p class="font-mono font-bold break-all mt-0.5">${esc(cc.num || "Número sin capturar")}</p>${cc.num ? `<button onclick="copyNum(${ci})" class="mt-2 bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg">Copiar número</button>` : ""}</div>`
+    : `<p class="text-xs text-blue-100 mt-2">Carlos todavía no captura su cuenta.</p><button onclick="cuentasOpen = true; switchTab('compras'); render(true)" class="mt-2 bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg">Capturarla en Compras</button>`;
+  const debe = H.map((h, i) => {
+    let t = 0;
+    [["internet", 225], ["luz"], ["agua"], ["gas"]].forEach(([k, fx]) => { const q = fx || ((M.tot || {})[k] || 0) / 4; if (q && !arr((M.svc || {})[k])[i]) t += q; });
+    (M.rec || []).forEach(x => { if (!arr(x.paid)[i]) t += x.m / 4; });
+    return t;
+  });
+  const totCard = card(`<h3 class="font-bold text-gray-800 mb-2">Resumen por persona</h3><div class="grid grid-cols-2 gap-2">${H.map((h, i) => `<div class="rounded-lg p-2 text-center border ${debe[i] > 0 ? "bg-red-50 border-red-300" : "bg-green-50 border-green-300"}"><p class="text-xs font-semibold text-gray-700">${h}</p><p class="text-lg font-black ${debe[i] > 0 ? "text-red-600" : "text-green-600"}">$${debe[i].toFixed(2)}${debe[i] > 0 ? "" : " ✓"}</p></div>`).join("")}</div>`);
+  const recCard = card(`<h3 class="font-bold text-gray-800">Recibos variables</h3><div class="space-y-2 mt-2"><input type="text" value="${esc(recF.n)}" onchange="recF.n=this.value" placeholder="Nombre (ej. Luz CFE, Gas)" class="w-full border border-gray-300 rounded p-2 text-sm"><div class="grid grid-cols-2 gap-2"><input type="number" inputmode="decimal" value="${recF.m}" onchange="recF.m=this.value" placeholder="Monto total" class="border border-gray-300 rounded p-2 text-sm"><input type="date" value="${recF.due}" onchange="recF.due=this.value" class="border border-gray-300 rounded p-2 text-sm"></div>${sel(recF.enc, "recF.enc=this.value")}<p class="text-xs text-gray-500">Arriba: encargado que recibe los depósitos.</p><button onclick="addRec()" class="w-full bg-purple-600 text-white font-medium py-2 rounded-lg text-sm">Agregar recibo</button></div>` + (M.rec || []).map(x => {
+    const pd = arr(x.paid), owe = H.filter((h, i) => !pd[i]), ea = (DB.cuentas || {})[x.enc] || {};
+    return `<div class="mt-3 border-t pt-3"><div class="flex justify-between items-start"><b class="text-sm text-gray-800">${esc(x.n)}</b><span class="text-sm font-black text-purple-700">$${(x.m / 4).toFixed(2)} c/u</span></div><p class="text-xs text-gray-500">Total $${x.m.toFixed(2)} · Límite ${x.due} · Recibe ${H[x.enc]}${ea.num ? ` · CLABE <span class="font-mono">${esc(ea.num)}</span> <button onclick="copyNum(${x.enc})" class="text-indigo-600 font-bold">Copiar</button>` : ""}</p>${owe.length ? tdesc(daysTo(x.due)) : ""}<p class="mt-1 text-sm font-bold ${owe.length ? "text-red-600" : "text-green-600"}">${owe.length ? "Debe: " + owe.join(", ") : "✅ Todos pagaron"}</p><div class="space-y-2 mt-2">${H.map((h, i) => cb(pd[i], `togRec(${x.id},${i})`, h, chip(concepto(x.n.slice(0, 14), i)))).join("")}</div><button onclick="delRec(${x.id})" class="mt-2 text-xs font-bold ${armed === "rec" + x.id ? "text-white bg-red-600 px-2 py-1 rounded" : "text-gray-500"}">${armed === "rec" + x.id ? "Toca otra vez para borrar" : "Borrar recibo"}</button></div>`;
+  }).join(""), "border-l-4 border-purple-500");
+  $("servicios").innerHTML = mNav()
+    + `<div class="bg-blue-600 text-white p-4 rounded-xl shadow"><h2 class="text-lg font-bold">Cuentas centralizadas</h2><p class="text-sm text-blue-100 mt-1">Todos los servicios se depositan a la cuenta de <strong class="underline">Carlos</strong>.</p>${carlosInfo}</div>`
+    + svc.map(([k, n, c, fx]) => {
+      const q = fx || (t[k] || 0) / 4, p = arr(s[k]);
+      const due = (M.due || {})[k] || "";
+      const dueRow = `<div class="flex items-center gap-2 mt-2"><span class="text-xs font-bold text-gray-500 uppercase">Fecha de pago</span><input type="date" value="${due}" onchange="setDue('${k}',this.value)" class="border border-gray-300 rounded p-1 text-sm"></div>`;
+      const owe = H.filter((h, i) => !p[i]);
+      const dd = daysTo(due), plural = n => n === 1 ? "1 día" : n + " días";
+      const timing = (dd !== null && owe.length && (fx || (t[k] || 0) > 0)) ? (dd < 0
+        ? `<p class="mt-2 p-2 rounded-lg bg-red-50 border border-red-300 text-sm font-bold text-red-700">⚠️ Pago atrasado por ${plural(-dd)}</p>`
+        : dd === 0 ? `<p class="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-300 text-sm font-bold text-amber-800">⏰ Vence hoy</p>`
+        : `<p class="mt-2 text-sm font-semibold ${dd <= 3 ? "text-amber-700" : "text-gray-600"}">${dd <= 3 ? "⏰ " : ""}Faltan ${plural(dd)} para pagar</p>`) : "";
+      const deb = (fx || (t[k] || 0) > 0) ? (owe.length ? `<p class="mt-2 text-sm font-bold text-red-600">Debe: ${owe.map(h => `${h} (<span class="qd-${k}">$${q.toFixed(2)}</span>)`).join(", ")}</p>` : `<p class="mt-2 text-sm font-bold text-green-600">✅ Todos pagaron</p>`) : "";
+      return card(`<h3 class="font-bold text-gray-800">${n}</h3>`
+        + (fx ? `<span class="inline-block mt-1 bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded">$${fx} c/u</span>`
+          : `<div class="flex items-center gap-2 mt-1"><input type="number" inputmode="decimal" value="${t[k] || ""}" oninput="liveQ('${k}',this.value)" onchange="setTot('${k}',this.value)" class="w-1/2 border border-gray-300 rounded p-1 text-sm" placeholder="Monto del recibo"><span class="text-xs font-bold text-gray-500">Cuota: $<b class="qn-${k}">${q.toFixed(2)}</b> c/u</span></div>`)
+        + dueRow + timing + deb + `<div class="space-y-2 mt-3">${H.map((h, i) => cb(p[i], `togSvc('${k}',${i})`, h, chip(concepto(k.toUpperCase(), i)) + `<span class="qd-${k} text-sm font-bold text-gray-600">$${q.toFixed(2)}</span>`)).join("")}</div>`, `border-l-4 ${c}`);
+    }).join("") + totCard + recCard;
+
+  $("nav-compras").innerHTML = mNav();
+  const L = M.shop || [];
+  $("shop-list").innerHTML = L.length ? L.map(it => {
+    const p = arr(it.paid);
+    return `<div class="border border-gray-200 rounded-lg p-3"><div class="flex justify-between items-start"><div><p class="font-bold text-gray-800 text-sm">${esc(it.c)}</p><p class="text-xs text-gray-500">A pagar a: ${esc(it.b)}</p>${payInfo(it.b)}</div><span class="text-sm font-black text-rose-700">$${(it.m / 4).toFixed(2)} c/u</span></div><div class="grid grid-cols-2 gap-2 mt-2">${H.map((h, i) => `<label class="flex items-center gap-2 bg-gray-50 p-2 rounded text-xs cursor-pointer"><input type="checkbox" ${p[i] ? "checked" : ""} onchange="togPaid(${it.id},${i})" class="h-4 w-4 rounded"><span>${h}</span></label>`).join("")}</div></div>`;
+  }).join("") : `<p class="text-sm text-gray-400 text-center py-4">No hay compras registradas en este mes.</p>`;
+
+  $("clear-shop-btn").textContent = armed === "shop" ? "Toca otra vez para confirmar" : "Limpiar lista";
+  $("clear-shop-btn").className = "text-xs font-bold " + (armed === "shop" ? "text-white bg-red-600 px-2 py-1 rounded" : "text-rose-600");
+  if (!$("cuentas-card").contains(document.activeElement)) $("cuentas-card").innerHTML = `<details ${cuentasOpen ? "open" : ""} ontoggle="cuentasOpen=this.open" class="bg-white p-4 rounded-xl shadow"><summary class="text-lg font-bold text-gray-800 cursor-pointer">Datos para depósito</summary><p class="text-xs text-gray-500 mt-2">Cada quien escribe su banco y su número de tarjeta o CLABE para recibir depósitos. Cualquiera con acceso a la app puede verlos.</p><div class="space-y-3 mt-3">${H.map((h, i) => { const c = (DB.cuentas || {})[i] || {}; return `<div class="bg-gray-50 rounded-lg p-2.5"><p class="text-sm font-semibold text-gray-800 mb-1.5">${h}</p><input type="text" value="${esc(c.bank || "")}" onchange="setCuenta(${i},'bank',this.value)" class="w-full border border-gray-300 rounded p-2 text-sm mb-1.5" placeholder="Banco"><input type="text" value="${esc(c.ben || "")}" onchange="setCuenta(${i},'ben',this.value)" class="w-full border border-gray-300 rounded p-2 text-sm mb-1.5" placeholder="Beneficiario (titular)"><div class="flex gap-2"><input type="text" inputmode="numeric" value="${esc(c.num || "")}" onchange="setCuenta(${i},'num',this.value)" class="flex-1 min-w-0 border border-gray-300 rounded p-2 text-sm" placeholder="Número de tarjeta o CLABE"><button type="button" onclick="copyNum(${i})" class="bg-indigo-600 text-white text-xs font-bold px-3 rounded">Copiar</button></div></div>`; }).join("")}</div></details>`;
+}
+
+/* ---------- Inicio ---------- */
+$("shop-buyer").innerHTML = H.map(h => `<option value="${h}">Compró: ${h}</option>`).join("");
+try { DB = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { DB = {}; }
+render(true);
+initShared();
+if ("serviceWorker" in navigator) { window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {})); }
+</script>
+</body>
+</html>
