@@ -2,12 +2,12 @@
 // Lee los datos de la app en Supabase y manda los avisos al grupo.
 // Requiere Node 18 o superior (usa fetch). No tiene dependencias.
 
-const TZ = "America/Tijuana";                   // Mexicali
+const TZ = "America/Tijuana";                 // Mexicali
 const H = ["Bryan/Uriel", "Ricardo", "Carlos", "Erick"];
-const PAGO_IMELDA_DOW = 2;                     // día del pago a Imelda: martes (0=domingo ... 6=sábado)
-const HORA_NOCHE = 20;                         // recordatorios de basura/Imelda: desde las 8:00 pm
-const HORA_RENTA = 9;                          // aviso de renta el día 4: desde las 9:00 am
-const HORA_RECIBOS = 9;                        // alertas de recibos (48 h y 24 h antes): desde las 9:00 am
+const PAGO_IMELDA_DOW = 2;                    // día del pago a Imelda: martes (0=domingo ... 6=sábado)
+const HORA_NOCHE = 20;                        // recordatorios de basura/Imelda: desde las 8:00 pm
+const HORA_RENTA = 9;
+const HORA_RECIBOS = 9;                       // alertas de recibos (48 h y 24 h antes): desde las 9:00 am                         // aviso de renta el día 4: desde las 9:00 am
 
 /* ---------- Fechas ---------- */
 const mod4 = n => ((n % 4) + 4) % 4;
@@ -78,6 +78,7 @@ function slots() {
 const monOwner = w => { const x = slots().S[w + "L"]; return x ? x.o : weekBoss(w); };
 const thuOwner = w => { const x = slots().S[w + "J"]; return x ? x.o : weekBoss(w); };
 const deudaBasura = () => slots().deudas.filter(x => !x.pagada);
+
 
 const cuentaTxt = i => {
   const c = (DB.cuentas || {})[i] || {};
@@ -153,24 +154,7 @@ async function mapaParticipantes(GRUPO, TOKEN) {
   } catch (e) { console.log("No pude leer los participantes del grupo:", e.message); return {}; }
 }
 
-async function setOffline(TOKEN) {
-  if (!TOKEN) return;
-  try {
-    const res = await fetch("https://gate.whapi.cloud/presences/me", {
-      method: "PUT",
-      headers: {
-        "Authorization": `Bearer ${TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ presence: "offline" })
-    });
-    console.log("Estado de presencia offline:", res.status);
-  } catch (err) {
-    console.error("Error al fijar offline en Whapi:", err.message);
-  }
-}
-
-async function main() {
+async function run() {
   const { SUPABASE_URL: U, SUPABASE_KEY: K, WHAPI_TOKEN, GRUPO_ID, TELEFONOS, PRUEBA, DRY_RUN } = process.env;
   const TEL = JSON.parse(TELEFONOS || "{}");
   const GRUPO = (GRUPO_ID || "").trim().replace(/^["']+|["']+$/g, "");
@@ -186,44 +170,55 @@ async function main() {
     if (!r.ok) throw new Error("Whapi: " + r.status + " " + await r.text());
   };
 
-  try {
-    const MAP = DRY_RUN ? {} : await mapaParticipantes(GRUPO, TOKEN);
-    if (Object.keys(MAP).length) {
-      Object.entries(TEL).forEach(([n, v]) => (Array.isArray(v) ? v : [v]).forEach(x => {
-        const d = String(x).replace(/\D/g, ""); console.log(MAP[d.slice(-10)] ? `OK ${n}: ${MAP[d.slice(-10)]}` : `AVISO ${n}: el numero ${d} no aparece en el grupo`);
-      }));
-    }
-    if (PRUEBA === "true" || PRUEBA === "1") { 
-      await enviar(armar("✅ Prueba del bot de la casa. Hola {{1}}", TEL, MAP)); 
-      console.log("Prueba enviada"); 
-      return; 
-    }
-
-    const res = await sb("estado?select=id,data");
-    if (!res.ok) throw new Error("Supabase: " + res.status + " " + await res.text());
-    const DB = {}; (await res.json()).forEach(r => { DB[r.id] = r.data; });
-    const sent = (DB.bot && DB.bot.sent) || {};
-    const now = ahora();
-    let cambio = false;
-
-    for (const m of planear(DB, now)) {
-      if (sent[m.key]) continue;
-      await enviar(armar(m.texto, TEL, MAP));
-      sent[m.key] = true; cambio = true;
-      console.log("Enviado:", m.key);
-    }
-    if (cambio && !DRY_RUN) {
-      const corte = addDays(now.date, -40).slice(0, 7);
-      Object.keys(sent).forEach(k => { if (k.slice(0, 7) < corte) delete sent[k]; });
-      await sb("estado", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify([{ id: "bot", data: { sent } }]) });
-    } else if (!cambio) {
-      console.log("Nada que enviar ahora", now);
-    }
-  } finally {
-    if (!DRY_RUN) {
-      await setOffline(TOKEN);
-    }
+  const MAP = DRY_RUN ? {} : await mapaParticipantes(GRUPO, TOKEN);
+  if (Object.keys(MAP).length) {
+    Object.entries(TEL).forEach(([n, v]) => (Array.isArray(v) ? v : [v]).forEach(x => {
+      const d = String(x).replace(/\D/g, ""); console.log(MAP[d.slice(-10)] ? `OK ${n}: ${MAP[d.slice(-10)]}` : `AVISO ${n}: el numero ${d} no aparece en el grupo`);
+    }));
   }
+  if (PRUEBA === "true" || PRUEBA === "1") { await enviar(armar("✅ Prueba del bot de la casa. Hola {{1}}", TEL, MAP)); console.log("Prueba enviada"); return; }
+
+  const res = await sb("estado?select=id,data");
+  if (!res.ok) throw new Error("Supabase: " + res.status + " " + await res.text());
+  const DB = {}; (await res.json()).forEach(r => { DB[r.id] = r.data; });
+  const sent = (DB.bot && DB.bot.sent) || {};
+  const now = ahora();
+  let cambio = false;
+
+  for (const m of planear(DB, now)) {
+    if (sent[m.key]) continue;
+    await enviar(armar(m.texto, TEL, MAP));
+    sent[m.key] = true; cambio = true;
+    console.log("Enviado:", m.key);
+  }
+  const gr = DB.garrafones;
+  if (gr && gr.disponibles <= 1 && !gr.alertaEnviada && now.hour >= 9 && now.hour < 21) {
+    const cap = gr.capacidadMaxima || 5;
+    await enviar(armar(gr.disponibles === 1 ? `🚰 Alerta de agua: Queda solo 1 garrafón de los ${cap}. Toca pedir esta tarde.` : `🚰 Alerta de agua: Ya no quedan garrafones (0 de ${cap}). Toca pedir esta tarde.`, TEL, MAP));
+    if (!DRY_RUN) {
+      const w = await sb("estado", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify([{ id: "garrafones", data: { ...gr, alertaEnviada: true } }]) });
+      if (!w.ok) console.log("No pude guardar alertaEnviada (la alerta se repetira):", w.status, await w.text());
+    }
+    console.log("Alerta de garrafones enviada");
+  }
+  if (cambio && !DRY_RUN) {
+    const corte = addDays(now.date, -40).slice(0, 7);
+    Object.keys(sent).forEach(k => { if (k.slice(0, 7) < corte) delete sent[k]; });
+    await sb("estado", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify([{ id: "bot", data: { sent } }]) });
+  } else if (!cambio) console.log("Nada que enviar ahora", now);
+}
+
+async function setOffline(TOKEN) {
+  if (!TOKEN || process.env.DRY_RUN) return;
+  try {
+    const u = "https://gate.whapi.cloud/settings", h = { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" };
+    const g = await fetch(u, { headers: h });
+    if (!g.ok || (await g.json()).offline_mode === true) return;      // ya está activo o no se pudo leer: no tocar
+    await fetch(u, { method: "PATCH", headers: h, body: JSON.stringify({ offline_mode: true }) });
+  } catch (e) { console.log("setOffline:", e.message); }
+}
+async function main() {
+  try { await run(); } finally { await setOffline((process.env.WHAPI_TOKEN || "").trim()); }
 }
 
 module.exports = { planear, armar, ahora };
