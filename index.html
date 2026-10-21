@@ -23,14 +23,67 @@
   .tab-content { display: none; }
   .tab-content.active { display: block; }
   .tab-content > * + * { margin-top: 1rem; }
+
+  /* ===== Modo oscuro (paleta #0f172a / #1e293b / #334155) ===== */
+  html.dark { color-scheme: dark; }
+  html.dark body { background: #0f172a; color: #e2e8f0; }
+  html.dark header { background: #1e293b; border-bottom: 1px solid #334155; }
+  html.dark .bg-white { background-color: #1e293b; }
+  html.dark .bg-gray-50, html.dark .bg-gray-100 { background-color: #334155; }
+  html.dark .bg-gray-200 { background-color: #475569; }
+  html.dark .border-gray-200, html.dark .border-t { border-color: #334155; }
+  html.dark .border-gray-300 { border-color: #475569; }
+  html.dark .text-gray-900, html.dark .text-gray-800 { color: #f1f5f9; }
+  html.dark .text-gray-700 { color: #e2e8f0; }
+  html.dark .text-gray-600 { color: #cbd5e1; }
+  html.dark .text-gray-500, html.dark .text-gray-400 { color: #94a3b8; }
+  html.dark input:not([type=checkbox]), html.dark select:not(.bg-transparent) { background-color: #0f172a; color: #f1f5f9; border-color: #475569; }
+  html.dark .bg-gray-900 { border: 1px solid #475569; }
+  html.dark .bg-red-50 { background-color: rgba(239,68,68,.15); }
+  html.dark .border-red-300 { border-color: rgba(248,113,113,.5); }
+  html.dark .text-red-600, html.dark .text-red-700 { color: #fca5a5; }
+  html.dark .bg-green-50 { background-color: rgba(34,197,94,.15); }
+  html.dark .bg-green-100 { background-color: rgba(34,197,94,.25); }
+  html.dark .border-green-300 { border-color: rgba(74,222,128,.45); }
+  html.dark .text-green-600, html.dark .text-green-700 { color: #86efac; }
+  html.dark .bg-amber-50 { background-color: rgba(245,158,11,.15); }
+  html.dark .border-amber-100, html.dark .border-amber-200, html.dark .border-amber-300 { border-color: rgba(251,191,36,.4); }
+  html.dark .text-amber-700, html.dark .text-amber-800, html.dark .text-amber-900 { color: #fcd34d; }
+  html.dark .bg-sky-50 { background-color: rgba(14,165,233,.15); }
+  html.dark .border-sky-200 { border-color: rgba(56,189,248,.4); }
+  html.dark .text-sky-900 { color: #7dd3fc; }
+  html.dark .bg-indigo-50 { background-color: rgba(99,102,241,.18); }
+  html.dark .border-indigo-100 { border-color: rgba(129,140,248,.4); }
+  html.dark .text-indigo-600, html.dark .text-indigo-700, html.dark .text-indigo-900 { color: #a5b4fc; }
+  html.dark .bg-emerald-50 { background-color: rgba(16,185,129,.15); }
+  html.dark .border-emerald-100, html.dark .border-emerald-200, html.dark .border-emerald-300 { border-color: rgba(52,211,153,.4); }
+  html.dark .text-emerald-700, html.dark .text-emerald-900 { color: #6ee7b7; }
+  html.dark .bg-blue-100 { background-color: rgba(59,130,246,.25); }
+  html.dark .text-blue-700, html.dark .text-blue-800 { color: #93c5fd; }
+  html.dark .text-rose-600, html.dark .text-rose-700 { color: #fda4af; }
+  html.dark .text-purple-700 { color: #d8b4fe; }
 </style>
+<script>
+/* Aplica el tema antes de pintar para evitar el destello blanco. */
+(function () {
+  try {
+    var t = localStorage.getItem("tema-casa");
+    if (t !== "dark" && t !== "light") t = (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+    if (t === "dark") document.documentElement.classList.add("dark");
+  } catch (e) {}
+})();
+</script>
 </head>
 <body class="font-sans min-h-screen">
 <header class="bg-indigo-600 text-white px-4 pb-4 shadow-md sticky top-0 z-50">
-  <h1 class="text-xl font-bold text-center">Control de la Casa</h1>
+  <div class="relative flex items-center justify-center">
+    <h1 class="text-xl font-bold text-center">Control de la Casa</h1>
+    <button id="theme-btn" type="button" onclick="toggleTema()" aria-label="Cambiar tema" class="absolute right-0 text-xl leading-none w-9 h-9 rounded-full bg-white/15">🌙</button>
+  </div>
   <p class="text-xs text-center text-indigo-200 mt-1">Bryan/Uriel • Ricardo • Carlos • Erick</p>
   <p id="sync-status" class="text-[11px] text-center text-indigo-200 mt-1">Solo en este dispositivo</p>
 </header>
+<div id="offline-bar" role="status" class="hidden bg-amber-50 text-amber-800 border-b border-amber-300 text-xs font-semibold text-center px-3 py-1.5"></div>
 <div id="alert-bar" class="hidden bg-red-600 text-white text-xs font-bold text-center px-3 py-2"></div>
 <main class="max-w-md mx-auto p-4">
   <section id="turnos" class="tab-content active"></section>
@@ -57,6 +110,7 @@
       </div>
       <div id="shop-list" class="space-y-3"></div>
     </div>
+    <div id="liquidacion-card"></div>
     <div id="cuentas-card"></div>
   </section>
 </main>
@@ -89,7 +143,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 const mod4 = n => ((n % 4) + 4) % 4;
 const mIdx = m => { const [y, n] = m.split("-").map(Number); return y * 12 + n - 1; };
 
-let DB = {}, sb = null, timer = null, writing = false;
+let DB = {}, sb = null, timer = null, writing = false, canal = null;
 let viewWeek = ymd(mondayOf(new Date())), viewMonth = curMonth();
 const dirty = new Set();
 const $ = id => document.getElementById(id);
@@ -157,20 +211,25 @@ const thuOwner = w => { const x = slots().S[w + "J"]; return x ? x.o : weekBoss(
 const deudaBasura = () => slots().deudas.filter(x => !x.pagada);
 
 /* ---------- Guardado y sincronización ---------- */
+/* La cola de cambios pendientes (dirty) también se guarda en el teléfono, para que
+   no se pierda si se cierra la app estando sin conexión. */
+const DKEY = KEY + "-dirty";
+const saveDirty = () => { try { localStorage.setItem(DKEY, JSON.stringify([...dirty])); } catch (e) {} };
 function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {}
+  saveDirty(); actualizarOffline();
   clearTimeout(timer); timer = setTimeout(flush, 400);
 }
 async function flush() {
-  if (!sb || !dirty.size) return;
+  if (!sb || !dirty.size || !navigator.onLine) return;
   if (writing) { timer = setTimeout(flush, 400); return; }
   writing = true;
   const ids = [...dirty]; dirty.clear();
   try {
     const { error } = await sb.from("estado").upsert(ids.map(id => ({ id, data: DB[id], updated_at: new Date().toISOString() })));
     if (error) throw error;
-  } catch (e) { ids.forEach(i => dirty.add(i)); setStatus("No se pudo guardar: " + (e.message || e)); }
-  writing = false;
+  } catch (e) { ids.forEach(i => dirty.add(i)); setStatus(navigator.onLine ? "No se pudo guardar: " + (e.message || e) : "Sin conexión · cambios en cola local"); }
+  writing = false; saveDirty(); actualizarOffline();
 }
 function mut(id, fn) {
   const d = id === "global" ? G() : (DB[id] = DB[id] || {});
@@ -191,7 +250,7 @@ function migrate(old) {
 async function initShared() {
   try {
     if (!window.supabase || SUPABASE_URL.startsWith("PEGA")) { setStatus("Falta configurar Supabase"); return; }
-    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    if (!sb) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     const { data, error } = await sb.from("estado").select("id,data");
     if (error) throw error;
     const R = {}; let old = null;
@@ -200,11 +259,12 @@ async function initShared() {
       if (r.data && Object.keys(r.data).length) R[r.id] = r.data;
     });
     Object.keys(DB).forEach(id => { if (!R[id]) dirty.add(id); });
-    Object.assign(DB, R);
+    for (const id in R) if (!dirty.has(id)) DB[id] = R[id]; // lo pendiente de enviar no se pisa con lo de la nube
     if (!R.global && !DB.global && old && old.fields) migrate(old);
     if (!DB.global) { G(); dirty.add("global"); }
     persist(); render(true);
-    sb.channel("estado-casa")
+    if (canal) setStatus("● Compartido en tiempo real");
+    else canal = sb.channel("estado-casa")
       .on("postgres_changes", { event: "*", schema: "public", table: "estado" }, p => {
         const r = p.new; if (!r || !r.id || r.id === "casa" || dirty.has(r.id) || !r.data || !Object.keys(r.data).length) return;
         DB[r.id] = r.data; try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} render();
@@ -213,7 +273,7 @@ async function initShared() {
         if (st === "SUBSCRIBED") setStatus("● Compartido en tiempo real");
         else if (st === "CHANNEL_ERROR" || st === "TIMED_OUT") setStatus("Guarda en la nube, pero sin tiempo real (" + st + ")");
       });
-  } catch (e) { sb = null; setStatus("Error: " + ((e && (e.message || e.details)) || String(e))); }
+  } catch (e) { if (!canal) sb = null; setStatus(!navigator.onLine ? "Sin conexión · usando la copia de este dispositivo" : "Error: " + ((e && (e.message || e.details)) || String(e))); }
 }
 
 /* ---------- Acciones ---------- */
@@ -310,6 +370,47 @@ function addShop() {
 }
 function togPaid(id, i) { mut(M_(), d => { const it = (d.shop || []).find(x => x.id === id); if (it) { it.paid = arr(it.paid); it.paid[i] = !it.paid[i]; } }); }
 
+/* ---------- Liquidación estilo Splitwise ---------- */
+/* Para cada compra, cada participante (que no sea quien pagó) le debe su cuota a quien pagó,
+   salvo que ya esté marcado como pagado. Luego se simplifican los saldos netos con el método
+   voraz: el que más debe le paga al que más se le debe, hasta dejar todo en cero.
+   Funciona en centavos para evitar errores de decimales. Acepta compras viejas (sin participantes). */
+function calcularLiquidacionMes(compras) {
+  const cent = n => Math.round((+n || 0) * 100);
+  const saldo = Object.fromEntries(H.map(h => [h, 0])); // + le deben · − debe
+  (compras || []).forEach(it => {
+    const pagador = it.pagado_por || it.b;
+    if (!(pagador in saldo)) return;
+    const parts = it.participantes && it.participantes.length ? it.participantes : H;
+    const cuota = cent(it.cuota_por_persona != null ? it.cuota_por_persona : (it.monto_total ?? it.m) / parts.length);
+    const pagos = arr(it.paid);
+    parts.forEach(p => {
+      const i = H.indexOf(p);
+      if (i < 0 || p === pagador || pagos[i]) return;
+      saldo[p] -= cuota; saldo[pagador] += cuota;
+    });
+  });
+  const acreedores = H.filter(h => saldo[h] > 0).map(h => ({ n: h, v: saldo[h] }));
+  const deudores = H.filter(h => saldo[h] < 0).map(h => ({ n: h, v: -saldo[h] }));
+  const transferencias = [];
+  while (acreedores.length && deudores.length) {
+    acreedores.sort((a, b) => b.v - a.v); deudores.sort((a, b) => b.v - a.v);
+    const c = acreedores[0], d = deudores[0], m = Math.min(c.v, d.v);
+    transferencias.push({ de: d.n, a: c.n, monto: m / 100 });
+    c.v -= m; d.v -= m;
+    if (c.v <= 0) acreedores.shift();
+    if (d.v <= 0) deudores.shift();
+  }
+  return { saldos: Object.fromEntries(H.map(h => [h, saldo[h] / 100])), transferencias };
+}
+function renderLiquidacion(M) {
+  const { saldos, transferencias } = calcularLiquidacionMes(M.shop || []);
+  const filas = transferencias.map(t => `<div class="bg-gray-50 rounded-lg p-2.5"><div class="flex justify-between items-center gap-2"><p class="text-sm text-gray-800"><b>${esc(t.de)}</b> → <b>${esc(t.a)}</b></p><span class="text-sm font-black text-rose-700">$${t.monto.toFixed(2)}</span></div>${payInfo(t.a)}</div>`).join("");
+  const netos = H.map(h => { const s = saldos[h]; return `<span class="text-xs font-semibold ${s > 0.004 ? "text-green-600" : s < -0.004 ? "text-red-600" : "text-gray-500"}">${esc(h)}: ${s > 0.004 ? "+" : ""}${s.toFixed(2)}</span>`; }).join("");
+  $("liquidacion-card").innerHTML = card(`<h2 class="text-lg font-bold text-gray-800 mb-1">Liquidación de ${lblMes(viewMonth)}</h2><p class="text-xs text-gray-500 mb-2">Transferencias mínimas para quedar a mano. Solo cuenta lo que aún no está marcado como pagado.</p>`
+    + (filas ? `<div class="space-y-2">${filas}</div><p class="text-xs font-bold text-gray-500 uppercase mt-3 mb-1">Saldo neto (+ le deben · − debe)</p><div class="flex flex-wrap gap-x-3 gap-y-1">${netos}</div>` : `<p class="text-sm font-bold text-green-600">✅ Todos están a mano este mes</p>`));
+}
+
 /* ---------- Pantallas ---------- */
 const MES3 = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
 const limpio = s => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
@@ -342,10 +443,19 @@ const payInfo = b => {
   const i = H.indexOf(b), c = (DB.cuentas || {})[i] || {};
   return (c.bank || c.num) ? `<p class="text-xs text-gray-700 mt-0.5">🏦 ${esc(c.bank || "")}${c.bank && c.num ? " · " : ""}<span class="font-mono">${esc(c.num || "")}</span>${c.num ? ` <button onclick="copyNum(${i})" class="text-indigo-600 font-bold ml-1">Copiar</button>` : ""}</p>` : "";
 };
+const lblMes = m => { const [y, n] = m.split("-").map(Number); return `${MES[n - 1]} ${y}`; };
+/* Meses con datos guardados (DB / Supabase) + el actual + el que se está viendo, del más nuevo al más viejo. */
+const mesesGuardados = () => {
+  const s = new Set(Object.keys(DB).filter(k => /^mes-\d{4}-\d{2}$/.test(k)).map(k => k.slice(4)));
+  s.add(curMonth()); s.add(viewMonth);
+  return [...s].sort().reverse();
+};
 const mNav = () => {
-  const [y, m] = viewMonth.split("-").map(Number);
-  return `<div class="flex items-center gap-2"><button onclick="navMonth(-1)" class="${BTN} w-12 text-xl">‹</button><label class="relative flex-1 text-center bg-white rounded-lg shadow py-2 font-bold text-gray-800">${MES[m - 1]} ${y}<input type="month" value="${viewMonth}" onchange="jumpMonth(this.value)" class="absolute inset-0 w-full opacity-0"></label><button onclick="navMonth(1)" class="${BTN} w-12 text-xl">›</button></div>`
-    + (viewMonth !== curMonth() ? `<button onclick="jumpMonth(curMonth())" class="text-xs text-indigo-600 font-bold w-full text-center mt-1">Ir al mes actual</button>` : "");
+  const [y, m] = viewMonth.split("-").map(Number), ms = mesesGuardados();
+  const hist = ms.length > 1 ? `<select onchange="jumpMonth(this.value)" aria-label="Historial de meses" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white mt-2">${ms.map(x => `<option value="${x}" ${x === viewMonth ? "selected" : ""}>${lblMes(x)}${x === curMonth() ? " · mes actual" : ""}</option>`).join("")}</select>` : "";
+  return `<div><div class="flex items-center gap-2"><button onclick="navMonth(-1)" class="${BTN} w-12 text-xl">‹</button><label class="relative flex-1 text-center bg-white rounded-lg shadow py-2 font-bold text-gray-800">${MES[m - 1]} ${y}<input type="month" value="${viewMonth}" onchange="jumpMonth(this.value)" class="absolute inset-0 w-full opacity-0"></label><button onclick="navMonth(1)" class="${BTN} w-12 text-xl">›</button></div>`
+    + hist
+    + (viewMonth !== curMonth() ? `<button onclick="jumpMonth(curMonth())" class="text-xs text-indigo-600 font-bold w-full text-center mt-2">⟲ Volver al mes actual (${lblMes(curMonth())})</button>` : "") + `</div>`;
 };
 const wNav = () => {
   const s = new Date(viewWeek + "T00:00"), e = new Date(s); e.setDate(e.getDate() + 6);
@@ -471,13 +581,54 @@ function render(local) {
 
   $("clear-shop-btn").textContent = armed === "shop" ? "Toca otra vez para confirmar" : "Limpiar lista";
   $("clear-shop-btn").className = "text-xs font-bold " + (armed === "shop" ? "text-white bg-red-600 px-2 py-1 rounded" : "text-rose-600");
+  renderLiquidacion(M);
   if (!$("cuentas-card").contains(document.activeElement)) $("cuentas-card").innerHTML = `<details ${cuentasOpen ? "open" : ""} ontoggle="cuentasOpen=this.open" class="bg-white p-4 rounded-xl shadow"><summary class="text-lg font-bold text-gray-800 cursor-pointer">Datos para depósito</summary><p class="text-xs text-gray-500 mt-2">Cada quien escribe su banco y su número de tarjeta o CLABE para recibir depósitos. Cualquiera con acceso a la app puede verlos.</p><div class="space-y-3 mt-3">${H.map((h, i) => { const c = (DB.cuentas || {})[i] || {}; return `<div class="bg-gray-50 rounded-lg p-2.5"><p class="text-sm font-semibold text-gray-800 mb-1.5">${h}</p><input type="text" value="${esc(c.bank || "")}" onchange="setCuenta(${i},'bank',this.value)" class="w-full border border-gray-300 rounded p-2 text-sm mb-1.5" placeholder="Banco"><input type="text" value="${esc(c.ben || "")}" onchange="setCuenta(${i},'ben',this.value)" class="w-full border border-gray-300 rounded p-2 text-sm mb-1.5" placeholder="Beneficiario (titular)"><div class="flex gap-2"><input type="text" inputmode="numeric" value="${esc(c.num || "")}" onchange="setCuenta(${i},'num',this.value)" class="flex-1 min-w-0 border border-gray-300 rounded p-2 text-sm" placeholder="Número de tarjeta o CLABE"><button type="button" onclick="copyNum(${i})" class="bg-indigo-600 text-white text-xs font-bold px-3 rounded">Copiar</button></div></div>`; }).join("")}</div></details>`;
 }
+
+/* ---------- Modo oscuro ---------- */
+const TEMA_KEY = "tema-casa";
+const temaGuardado = () => { try { const t = localStorage.getItem(TEMA_KEY); return t === "dark" || t === "light" ? t : null; } catch (e) { return null; } };
+const temaSistema = () => (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+function aplicarTema(t) {
+  document.documentElement.classList.toggle("dark", t === "dark");
+  const b = $("theme-btn");
+  if (b) { b.textContent = t === "dark" ? "☀️" : "🌙"; b.setAttribute("aria-label", t === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"); }
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute("content", t === "dark" ? "#1e293b" : "#4f46e5");
+}
+function toggleTema() {
+  const n = document.documentElement.classList.contains("dark") ? "light" : "dark";
+  try { localStorage.setItem(TEMA_KEY, n); } catch (e) {}
+  aplicarTema(n);
+}
+aplicarTema(temaGuardado() || temaSistema());
+if (window.matchMedia) {
+  const mq = matchMedia("(prefers-color-scheme: dark)");
+  const alCambiar = e => { if (!temaGuardado()) aplicarTema(e.matches ? "dark" : "light"); };
+  if (mq.addEventListener) mq.addEventListener("change", alCambiar); else if (mq.addListener) mq.addListener(alCambiar);
+}
+
+/* ---------- Sin conexión: cambios en cola y envío al volver ---------- */
+function actualizarOffline() {
+  const bar = $("offline-bar"); if (!bar) return;
+  const off = !navigator.onLine;
+  bar.classList.toggle("hidden", !off);
+  if (off) bar.textContent = `📴 Sin conexión: tus cambios se guardan en este teléfono${dirty.size ? " (" + dirty.size + " en cola)" : ""} y se enviarán al volver internet.`;
+}
+window.addEventListener("offline", () => { actualizarOffline(); setStatus("Sin conexión · cambios en cola local"); });
+window.addEventListener("online", () => {
+  actualizarOffline(); setStatus("Reconectando…");
+  initShared(); // vuelve a leer la nube (sin pisar lo pendiente) y manda la cola con flush()
+  clearTimeout(timer); timer = setTimeout(flush, 600);
+});
 
 /* ---------- Inicio ---------- */
 $("compra-pagador").innerHTML = H.map(h => `<option value="${h}">${h}</option>`).join("");
 $("compra-part").innerHTML = H.map((h, i) => `<label class="flex items-center gap-2 bg-gray-50 p-2 rounded text-xs cursor-pointer"><input type="checkbox" id="compra-part-${i}" checked class="h-4 w-4 rounded"><span>${h}</span></label>`).join("");
 try { DB = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { DB = {}; }
+try { JSON.parse(localStorage.getItem(DKEY) || "[]").forEach(id => dirty.add(id)); } catch (e) {}
+actualizarOffline();
+if (!navigator.onLine) setStatus("Sin conexión · cambios en cola local");
 render(true);
 initShared();
 
