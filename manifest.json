@@ -25,5 +25,35 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Registrar compra",
+      "short_name": "Nueva compra",
+      "description": "Abre el formulario para registrar un gasto",
+      "url": "/?shortcut=compra",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Se acabó un garrafón",
+      "short_name": "Menos 1 garrafón",
+      "description": "Resta automáticamente un garrafón del stock",
+      "url": "/?shortcut=garrafon",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Turno de basura",
+      "short_name": "Sacar basura",
+      "description": "Ver a quién le toca sacar la basura hoy",
+      "url": "/?shortcut=basura",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Ver cuentas de todos",
+      "short_name": "Cuentas y CLABEs",
+      "description": "Ver datos bancarios para transferir",
+      "url": "/?shortcut=cuentas",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
   ]
 }
