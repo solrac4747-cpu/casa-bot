@@ -16,6 +16,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <style>
   :root { color-scheme: light; }
+  html, body { overscroll-behavior-y: contain; }
   body { background: #f3f4f6; padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
   header { padding-top: calc(1rem + env(safe-area-inset-top, 0px)); }
   nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -42,8 +43,11 @@
       <div class="space-y-2">
         <input id="shop-concept" type="text" class="w-full border border-gray-300 rounded-lg p-2 text-sm" placeholder="Concepto (ej. papel de baño)">
         <input id="shop-amount" type="number" inputmode="decimal" class="w-full border border-gray-300 rounded-lg p-2 text-sm" placeholder="Monto total ($)">
-        <select id="shop-buyer" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white"></select>
-        <button onclick="addShop()" class="w-full bg-rose-600 text-white font-medium py-2 rounded-lg text-sm">Añadir y dividir entre 4</button>
+        <label class="block text-xs font-bold text-gray-600 uppercase">¿Quién pagó?</label>
+        <select id="compra-pagador" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white"></select>
+        <p class="text-xs font-bold text-gray-600 uppercase pt-1">¿Quiénes participan?</p>
+        <div id="compra-part" class="grid grid-cols-2 gap-2"></div>
+        <button onclick="addShop()" class="w-full bg-rose-600 text-white font-medium py-2 rounded-lg text-sm">Añadir y dividir entre los participantes</button>
       </div>
     </div>
     <div class="bg-white p-4 rounded-xl shadow">
@@ -56,6 +60,8 @@
     <div id="cuentas-card"></div>
   </section>
 </main>
+<div id="ptr" style="position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 92px);transform:translateY(-20px);opacity:0;pointer-events:none;z-index:60;text-align:center"><span id="ptr-t" class="inline-block bg-gray-900 text-white text-xs font-semibold px-3 py-1.5 rounded-full">↓ Desliza para actualizar</span></div>
+<div id="update-toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-36 bg-gray-900 text-white text-sm font-semibold pl-4 pr-2 py-2 rounded-full z-[70] items-center gap-3 shadow-lg"><span>Hay una actualización lista</span><button id="update-btn" type="button" class="bg-indigo-500 text-white text-xs font-bold px-3 py-1.5 rounded-full">Actualizar</button></div>
 <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 bg-gray-900 text-white text-sm font-semibold px-4 py-2 rounded-full z-[60]"></div>
 <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 grid grid-cols-4 z-50">
   <button onclick="switchTab('turnos')" class="py-2 text-xs font-medium text-indigo-600"><div class="text-xl">📋</div>Turnos</button>
@@ -292,9 +298,15 @@ function liveQ(k, v) {
 function addShop() {
   const c = $("shop-concept").value.trim(), m = parseFloat($("shop-amount").value) || 0;
   if (!c || m <= 0) { toast("Escribe un concepto y un monto mayor a 0"); return; }
-  const b = $("shop-buyer").value;
-  mut(M_(), d => { d.shop = d.shop || []; d.shop.push({ id: Date.now(), c, m, b, paid: F4() }); });
+  const pagado_por = $("compra-pagador").value;
+  const participantes = H.filter((h, i) => $("compra-part-" + i).checked);
+  if (!participantes.length) { toast("Elige al menos un participante"); return; }
+  const monto_total = Math.round(m * 100) / 100;
+  const cuota_por_persona = Math.round((monto_total / participantes.length) * 100) / 100;
+  const paid = H.map(h => h === pagado_por);
+  mut(M_(), d => { d.shop = d.shop || []; d.shop.push({ id: Date.now(), c, m: monto_total, b: pagado_por, paid, pagado_por, participantes, monto_total, cuota_por_persona }); });
   $("shop-concept").value = ""; $("shop-amount").value = "";
+  H.forEach((h, i) => { $("compra-part-" + i).checked = true; });
 }
 function togPaid(id, i) { mut(M_(), d => { const it = (d.shop || []).find(x => x.id === id); if (it) { it.paid = arr(it.paid); it.paid[i] = !it.paid[i]; } }); }
 
@@ -453,8 +465,8 @@ function render(local) {
   $("nav-compras").innerHTML = mNav();
   const L = M.shop || [];
   $("shop-list").innerHTML = L.length ? L.map(it => {
-    const p = arr(it.paid);
-    return `<div class="border border-gray-200 rounded-lg p-3"><div class="flex justify-between items-start"><div><p class="font-bold text-gray-800 text-sm">${esc(it.c)}</p><p class="text-xs text-gray-500">A pagar a: ${esc(it.b)}</p>${payInfo(it.b)}</div><span class="text-sm font-black text-rose-700">$${(it.m / 4).toFixed(2)} c/u</span></div><div class="grid grid-cols-2 gap-2 mt-2">${H.map((h, i) => `<label class="flex items-center gap-2 bg-gray-50 p-2 rounded text-xs cursor-pointer"><input type="checkbox" ${p[i] ? "checked" : ""} onchange="togPaid(${it.id},${i})" class="h-4 w-4 rounded"><span>${h}</span></label>`).join("")}</div></div>`;
+    const p = arr(it.paid), part = it.participantes || H;
+    return `<div class="border border-gray-200 rounded-lg p-3"><div class="flex justify-between items-start"><div><p class="font-bold text-gray-800 text-sm">${esc(it.c)}</p><p class="text-xs text-gray-500">A pagar a: ${esc(it.b)} · entre ${part.length}</p>${payInfo(it.b)}</div><span class="text-sm font-black text-rose-700">$${(it.cuota_por_persona ?? it.m / 4).toFixed(2)} c/u</span></div><div class="grid grid-cols-2 gap-2 mt-2">${H.map((h, i) => !part.includes(h) ? "" : `<label class="flex items-center gap-2 bg-gray-50 p-2 rounded text-xs cursor-pointer"><input type="checkbox" ${p[i] ? "checked" : ""} onchange="togPaid(${it.id},${i})" class="h-4 w-4 rounded"><span>${h}</span></label>`).join("")}</div></div>`;
   }).join("") : `<p class="text-sm text-gray-400 text-center py-4">No hay compras registradas en este mes.</p>`;
 
   $("clear-shop-btn").textContent = armed === "shop" ? "Toca otra vez para confirmar" : "Limpiar lista";
@@ -463,22 +475,66 @@ function render(local) {
 }
 
 /* ---------- Inicio ---------- */
-$("shop-buyer").innerHTML = H.map(h => `<option value="${h}">Compró: ${h}</option>`).join("");
+$("compra-pagador").innerHTML = H.map(h => `<option value="${h}">${h}</option>`).join("");
+$("compra-part").innerHTML = H.map((h, i) => `<label class="flex items-center gap-2 bg-gray-50 p-2 rounded text-xs cursor-pointer"><input type="checkbox" id="compra-part-${i}" checked class="h-4 w-4 rounded"><span>${h}</span></label>`).join("");
 try { DB = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { DB = {}; }
 render(true);
 initShared();
-if ("serviceWorker" in navigator) { window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {})); }
+
+/* ---------- Vibración háptica ---------- */
+const ejecutarVibracion = ms => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} };
+document.addEventListener("click", e => {
+  if (e.target.closest('button, nav a, input[type="submit"], input[type="checkbox"], select')) ejecutarVibracion(30);
+}, true);
+
+/* ---------- Actualizaciones de la PWA ---------- */
+let recargando = false;
+function mostrarActualizacion(sw) {
+  const t = $("update-toast"); t.classList.remove("hidden"); t.classList.add("flex");
+  $("update-btn").onclick = () => {
+    ejecutarVibracion(30);
+    sw.postMessage({ action: "skipWaiting" });
+    setTimeout(() => { if (!recargando) { recargando = true; location.reload(); } }, 1200);
+  };
+}
+function iniciarSW() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (recargando) return; recargando = true; location.reload(); });
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    if (reg.waiting && navigator.serviceWorker.controller) mostrarActualizacion(reg.waiting);
+    reg.addEventListener("updatefound", () => {
+      const nuevo = reg.installing; if (!nuevo) return;
+      nuevo.addEventListener("statechange", () => { if (nuevo.state === "installed" && navigator.serviceWorker.controller) mostrarActualizacion(nuevo); });
+    });
+    setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+  }).catch(() => {});
+}
+window.addEventListener("load", iniciarSW);
+
+/* ---------- Deslizar para actualizar ---------- */
+(function () {
+  const ptr = $("ptr"), txt = $("ptr-t"), UMBRAL = 70;
+  let y0 = null, dy = 0;
+  const reset = () => { ptr.style.transform = "translateY(-20px)"; ptr.style.opacity = 0; txt.textContent = "↓ Desliza para actualizar"; y0 = null; dy = 0; };
+  document.addEventListener("touchstart", e => {
+    y0 = (window.scrollY > 0 || e.target.closest("input, select, textarea")) ? null : e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (y0 === null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || window.scrollY > 0) { reset(); return; }
+    ptr.style.opacity = Math.min(1, dy / UMBRAL);
+    ptr.style.transform = `translateY(${Math.min(dy * 0.4, 36)}px)`;
+    txt.textContent = dy > UMBRAL ? "↑ Suelta para actualizar" : "↓ Desliza para actualizar";
+  }, { passive: true });
+  document.addEventListener("touchend", () => {
+    if (y0 !== null && dy > UMBRAL) { ejecutarVibracion(40); txt.textContent = "Actualizando…"; setTimeout(() => location.reload(), 150); }
+    else reset();
+  }, { passive: true });
+})();
+
 </script>
 
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then((reg) => console.log('Service Worker registrado con éxito:', reg.scope))
-        .catch((err) => console.error('Error al registrar Service Worker:', err));
-    });
-  }
-</script>
-  
+
 </body>
 </html>
