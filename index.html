@@ -692,6 +692,44 @@ window.addEventListener("load", iniciarSW);
   }, { passive: true });
 })();
 
+/* ---------- Manejo de PWA Shortcuts ---------- */
+window.addEventListener("DOMContentLoaded", () => {
+  const params = new URLSearchParams(window.location.search);
+  const action = params.get("shortcut");
+
+  if (!action) return;
+
+  // Limpia el parámetro de la URL sin recargar la página para evitar que se repita
+  window.history.replaceState({}, document.title, window.location.pathname);
+
+  // Pequeña espera para asegurar que la app haya cargado datos de Supabase/Local
+  setTimeout(() => {
+    if (action === "compra") {
+      switchTab("compras");
+      const input = $("shop-concept");
+      if (input) {
+        input.focus();
+        input.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    } else if (action === "garrafon") {
+      switchTab("turnos");
+      garr("uso");
+      toast("💧 Garrafón descontado");
+    } else if (action === "basura") {
+      switchTab("turnos");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (action === "cuentas") {
+      cuentasOpen = true;
+      switchTab("compras");
+      render(true);
+      const card = $("cuentas-card");
+      if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }, 400);
+});
+
 </script>
 
 
