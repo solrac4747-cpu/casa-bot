@@ -3,10 +3,34 @@
 // Requiere Node 18 o superior (usa fetch). No tiene dependencias.
 
 const TZ = "America/Tijuana";                 // Mexicali
-const H = ["Bryan/Uriel", "Ricardo", "Carlos", "Erick"];
+const H = ["Bryan/Uriel", "Ricardo", "Erick", "Carlos"];    // orden oficial
+const CAP_G = 6;                                              // capacidad total de garrafones
+/* El orden oficial es H. En Supabase los datos viejos se guardaron en el orden anterior (..., Carlos, Erick):
+   al leer y al escribir se intercambian solo los lugares 2 y 3 (la misma función sirve en los dos sentidos). */
+const sw = i => (i === 2 ? 3 : i === 3 ? 2 : i);
+const swArr = a => (Array.isArray(a) && a.length === 4 ? [a[0], a[1], a[3], a[2]] : a);
+function ordenDoc(id, d) {
+  if (!d || typeof d !== "object") return d;
+  const x = JSON.parse(JSON.stringify(d)), num = (o, k) => { if (typeof o[k] === "number") o[k] = sw(o[k]); };
+  if (id === "global") ["water", "aB", "aR"].forEach(k => num(x, k));
+  else if (id.startsWith("sem-")) ["boss", "swapLun", "swapJue"].forEach(k => num(x, k));
+  else if (id.startsWith("mes-")) {
+    num(x, "boss");
+    if (x.rent) x.rent = swArr(x.rent);
+    if (x.svc) Object.keys(x.svc).forEach(k => { x.svc[k] = swArr(x.svc[k]); });
+    (x.rec || []).forEach(r => { if (r.paid) r.paid = swArr(r.paid); num(r, "enc"); });
+    (x.shop || []).forEach(s => { if (s.paid) s.paid = swArr(s.paid); });
+  } else if (id === "cuentas") {
+    const a = x[2], b = x[3]; delete x[2]; delete x[3];
+    if (b !== undefined) x[2] = b;
+    if (a !== undefined) x[3] = a;
+  } else if (id === "ausencias") (x.r || []).forEach(r => num(r, "p"));
+  return x;
+}
 const PAGO_IMELDA_DOW = 2;                    // día del pago a Imelda: martes (0=domingo ... 6=sábado)
 const HORA_NOCHE = 20;                        // recordatorios de basura/Imelda: desde las 8:00 pm
 const HORA_RENTA = 9;
+const HORA_COMPRAS = 14;                      // resumen de deudas de compras: desde las 2:00 pm (hora de Mexicali)
 const HORA_RECIBOS = 9;                       // alertas de recibos (48 h y 24 h antes): desde las 9:00 am                         // aviso de renta el día 4: desde las 9:00 am
 
 /* ---------- Fechas ---------- */
@@ -129,6 +153,40 @@ function planear(DBin, now) {
       });
     });
   }
+
+  if (now.hour >= HORA_COMPRAS) {
+    const tr = calcularLiquidacion((DB["mes-" + now.month] || {}).shop);
+    if (tr.length) {
+      out.push({
+        key: `${now.date}-compras`, sufijo: "@s.whatsapp.net",
+        texto: `🛒 *Recordatorio de Compras (2:00 PM)*\n\nSaldos pendientes por liquidar en la casa:\n${tr.map(t => `• ${tk(H.indexOf(t.de))} le debe *$${t.monto.toFixed(2)}* a ${tk(H.indexOf(t.a))}`).join("\n")}\n\nRevisen los detalles y cuentas CLABE en la app para liquidar sus transferencias.`
+      });
+    }
+  }
+  return out;
+}
+
+/* ---------- Liquidación de compras (quién le debe a quién) ---------- */
+// Misma lógica que calcularLiquidacionMes de la app: centavos, solo lo no marcado como pagado, simplificación voraz.
+function calcularLiquidacion(compras) {
+  const cent = n => Math.round((+n || 0) * 100);
+  const saldo = Object.fromEntries(H.map(h => [h, 0]));          // + le deben · − debe
+  (compras || []).forEach(it => {
+    const pagador = it.pagado_por || it.b;
+    if (!(pagador in saldo)) return;
+    const parts = it.participantes && it.participantes.length ? it.participantes : H;
+    const cuota = cent(it.cuota_por_persona != null ? it.cuota_por_persona : (it.monto_total ?? it.m) / parts.length), pagos = arr(it.paid);
+    parts.forEach(p => { const i = H.indexOf(p); if (i < 0 || p === pagador || pagos[i]) return; saldo[p] -= cuota; saldo[pagador] += cuota; });
+  });
+  const acr = H.filter(h => saldo[h] > 0).map(h => ({ n: h, v: saldo[h] })), deu = H.filter(h => saldo[h] < 0).map(h => ({ n: h, v: -saldo[h] })), out = [];
+  while (acr.length && deu.length) {
+    acr.sort((a, c) => c.v - a.v); deu.sort((a, c) => c.v - a.v);
+    const c = acr[0], d = deu[0], m = Math.min(c.v, d.v);
+    out.push({ de: d.n, a: c.n, monto: m / 100 });
+    c.v -= m; d.v -= m;
+    if (c.v <= 0) acr.shift();
+    if (d.v <= 0) deu.shift();
+  }
   return out;
 }
 
@@ -161,11 +219,11 @@ async function run() {
   const TOKEN = (WHAPI_TOKEN || "").trim();
   if (!GRUPO && !DRY_RUN) throw new Error("El secreto GRUPO_ID esta vacio o no existe");
   const sb = (path, opt = {}) => fetch(`${U}/rest/v1/${path}`, { ...opt, headers: { apikey: K, Authorization: `Bearer ${K}`, "Content-Type": "application/json", ...(opt.headers || {}) } });
-  const enviar = async ({ texto, nums }) => {
+  const enviar = async ({ texto, nums, sufijo }) => {
     if (DRY_RUN) { console.log("[DRY_RUN]", texto, nums); return; }
     const r = await fetch("https://gate.whapi.cloud/messages/text", {
       method: "POST", headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ to: GRUPO, body: texto, mentions: nums })
+      body: JSON.stringify({ to: GRUPO, body: texto, mentions: [...new Set(nums)].map(n => n + (sufijo || "")) })
     });
     if (!r.ok) throw new Error("Whapi: " + r.status + " " + await r.text());
   };
@@ -180,20 +238,20 @@ async function run() {
 
   const res = await sb("estado?select=id,data");
   if (!res.ok) throw new Error("Supabase: " + res.status + " " + await res.text());
-  const DB = {}; (await res.json()).forEach(r => { DB[r.id] = r.data; });
+  const DB = {}; (await res.json()).forEach(r => { DB[r.id] = ordenDoc(r.id, r.data); });
   const sent = (DB.bot && DB.bot.sent) || {};
   const now = ahora();
   let cambio = false;
 
   for (const m of planear(DB, now)) {
     if (sent[m.key]) continue;
-    await enviar(armar(m.texto, TEL, MAP));
+    await enviar({ ...armar(m.texto, TEL, MAP), sufijo: m.sufijo });
     sent[m.key] = true; cambio = true;
     console.log("Enviado:", m.key);
   }
   const gr = DB.garrafones;
   if (gr && gr.disponibles <= 1 && !gr.alertaEnviada && now.hour >= 9 && now.hour < 21) {
-    const cap = gr.capacidadMaxima || 5;
+    const cap = CAP_G;
     await enviar(armar(gr.disponibles === 1 ? `🚰 Alerta de agua: Queda solo 1 garrafón de los ${cap}. Toca pedir esta tarde.` : `🚰 Alerta de agua: Ya no quedan garrafones (0 de ${cap}). Toca pedir esta tarde.`, TEL, MAP));
     if (!DRY_RUN) {
       const w = await sb("estado", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify([{ id: "garrafones", data: { ...gr, alertaEnviada: true } }]) });
@@ -221,5 +279,5 @@ async function main() {
   try { await run(); } finally { await setOffline((process.env.WHAPI_TOKEN || "").trim()); }
 }
 
-module.exports = { planear, armar, ahora };
+module.exports = { planear, armar, ahora, calcularLiquidacion, ordenDoc };
 if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
