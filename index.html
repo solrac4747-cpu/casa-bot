@@ -80,7 +80,7 @@
     <h1 class="text-xl font-bold text-center">Control de la Casa</h1>
     <button id="theme-btn" type="button" onclick="toggleTema()" aria-label="Cambiar tema" class="absolute right-0 text-xl leading-none w-9 h-9 rounded-full bg-white/15">🌙</button>
   </div>
-  <p class="text-xs text-center text-indigo-200 mt-1">Bryan/Uriel • Ricardo • Carlos • Erick</p>
+  <p class="text-xs text-center text-indigo-200 mt-1">Bryan/Uriel • Ricardo • Erick • Carlos</p>
   <p id="sync-status" class="text-[11px] text-center text-indigo-200 mt-1">Solo en este dispositivo</p>
 </header>
 <div id="offline-bar" role="status" class="hidden bg-amber-50 text-amber-800 border-b border-amber-300 text-xs font-semibold text-center px-3 py-1.5"></div>
@@ -128,10 +128,33 @@
 const SUPABASE_URL = "https://qopinzgdnczovxyllhvi.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcGluemdkbmN6b3Z4eWxsaHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0NTU1OTMsImV4cCI6MjEwODAzMTU5M30.c5gDmk0N3-07ZpiOEuhzJPBpVZm16hT0pITLibumDIg";
 
-const H = ["Bryan/Uriel", "Ricardo", "Carlos", "Erick"];
+const H = ["Bryan/Uriel", "Ricardo", "Erick", "Carlos"];    // orden oficial
+const CAP_G = 6;                                              // capacidad total de garrafones
+/* El orden oficial es H. En Supabase los datos viejos se guardaron en el orden anterior (..., Carlos, Erick):
+   al leer y al escribir se intercambian solo los lugares 2 y 3 (la misma función sirve en los dos sentidos). */
+const sw = i => (i === 2 ? 3 : i === 3 ? 2 : i);
+const swArr = a => (Array.isArray(a) && a.length === 4 ? [a[0], a[1], a[3], a[2]] : a);
+function ordenDoc(id, d) {
+  if (!d || typeof d !== "object") return d;
+  const x = JSON.parse(JSON.stringify(d)), num = (o, k) => { if (typeof o[k] === "number") o[k] = sw(o[k]); };
+  if (id === "global") ["water", "aB", "aR"].forEach(k => num(x, k));
+  else if (id.startsWith("sem-")) ["boss", "swapLun", "swapJue"].forEach(k => num(x, k));
+  else if (id.startsWith("mes-")) {
+    num(x, "boss");
+    if (x.rent) x.rent = swArr(x.rent);
+    if (x.svc) Object.keys(x.svc).forEach(k => { x.svc[k] = swArr(x.svc[k]); });
+    (x.rec || []).forEach(r => { if (r.paid) r.paid = swArr(r.paid); num(r, "enc"); });
+    (x.shop || []).forEach(s => { if (s.paid) s.paid = swArr(s.paid); });
+  } else if (id === "cuentas") {
+    const a = x[2], b = x[3]; delete x[2]; delete x[3];
+    if (b !== undefined) x[2] = b;
+    if (a !== undefined) x[3] = a;
+  } else if (id === "ausencias") (x.r || []).forEach(r => num(r, "p"));
+  return x;
+}
 const DUENA = { n: "Sra. Rubi", b: "Banamex", c: "002027435900086068" };
 const MES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const KEY = "control-casa-hist-v1";
+const KEY = "control-casa-hist-v2";    // v2: caché en el nuevo orden de habitantes
 const BTN = "bg-white shadow rounded-lg py-2 font-bold text-indigo-700";
 const F4 = () => [false, false, false, false];
 const arr = a => (a && a.length === 4 ? a : F4());
@@ -226,7 +249,7 @@ async function flush() {
   writing = true;
   const ids = [...dirty]; dirty.clear();
   try {
-    const { error } = await sb.from("estado").upsert(ids.map(id => ({ id, data: DB[id], updated_at: new Date().toISOString() })));
+    const { error } = await sb.from("estado").upsert(ids.map(id => ({ id, data: ordenDoc(id, DB[id]), updated_at: new Date().toISOString() })));
     if (error) throw error;
   } catch (e) { ids.forEach(i => dirty.add(i)); setStatus(navigator.onLine ? "No se pudo guardar: " + (e.message || e) : "Sin conexión · cambios en cola local"); }
   writing = false; saveDirty(); actualizarOffline();
@@ -256,7 +279,7 @@ async function initShared() {
     const R = {}; let old = null;
     data.forEach(r => {
       if (r.id === "casa") { old = r.data; return; }
-      if (r.data && Object.keys(r.data).length) R[r.id] = r.data;
+      if (r.data && Object.keys(r.data).length) R[r.id] = ordenDoc(r.id, r.data);
     });
     Object.keys(DB).forEach(id => { if (!R[id]) dirty.add(id); });
     for (const id in R) if (!dirty.has(id)) DB[id] = R[id]; // lo pendiente de enviar no se pisa con lo de la nube
@@ -267,7 +290,7 @@ async function initShared() {
     else canal = sb.channel("estado-casa")
       .on("postgres_changes", { event: "*", schema: "public", table: "estado" }, p => {
         const r = p.new; if (!r || !r.id || r.id === "casa" || dirty.has(r.id) || !r.data || !Object.keys(r.data).length) return;
-        DB[r.id] = r.data; try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} render();
+        DB[r.id] = ordenDoc(r.id, r.data); try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} render();
       })
       .subscribe(st => {
         if (st === "SUBSCRIBED") setStatus("● Compartido en tiempo real");
@@ -313,10 +336,11 @@ function armClear(k) {
   setTimeout(() => { if (armed === k) { armed = null; render(true); } }, 4000);
 }
 function togSvc(k, i) { mut(M_(), d => { d.svc = d.svc || {}; d.svc[k] = arr(d.svc[k]); d.svc[k][i] = !d.svc[k][i]; }); }
+function compreGarrafones() { water(1); garr("recarga"); }   // avanza la fila y deja el stock en 6
 function garr(a) {
   mut("garrafones", d => {
-    d.capacidadMaxima = d.capacidadMaxima || 5;
-    d.disponibles = d.disponibles == null ? d.capacidadMaxima : d.disponibles;
+    d.capacidadMaxima = CAP_G;
+    d.disponibles = d.disponibles == null ? CAP_G : Math.min(d.disponibles, CAP_G);
     if (d.ultimaRecarga == null) d.ultimaRecarga = "";
     if (a === "uso") d.disponibles = Math.max(0, d.disponibles - 1);
     else if (a === "recarga") { d.disponibles = d.capacidadMaxima; d.ultimaRecarga = ymd(new Date()); d.alertaEnviada = false; }
@@ -429,7 +453,7 @@ const getBankLogo = nombre => {
   const w = 16 + 7 * b[1].length;
   return `<svg class="shrink-0 rounded-md" height="24" width="${w}" viewBox="0 0 ${w} 24" role="img" aria-label="${b[1]}"><rect width="${w}" height="24" rx="5" fill="${b[2]}"/><text x="${w / 2}" y="16" text-anchor="middle" font-size="11" font-weight="800" font-family="Arial,sans-serif" fill="#fff">${b[1]}</text></svg>`;
 };
-let swapF = { date: "", to: 0, both: false }, ausF = { p: 0, d1: "", d2: "" }, recF = { n: "", m: "", due: "", enc: 2 };
+let swapF = { date: "", to: 0, both: false }, ausF = { p: 0, d1: "", d2: "" }, recF = { n: "", m: "", due: "", enc: H.indexOf("Carlos") };
 const sel = (cur, fn) => `<select onchange="${fn}" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">${H.map((h, i) => `<option value="${i}" ${i === +cur ? "selected" : ""}>${h}</option>`).join("")}</select>`;
 const tdesc = dd => dd === null ? "" : dd < 0 ? `<p class="text-xs font-bold text-red-600">⚠️ Atrasado por ${-dd} día${dd === -1 ? "" : "s"}</p>` : dd === 0 ? `<p class="text-xs font-bold text-amber-700">⏰ Vence hoy</p>` : `<p class="text-xs font-semibold ${dd <= 3 ? "text-amber-700" : "text-gray-600"}">Faltan ${dd} día${dd === 1 ? "" : "s"}</p>`;
 const card = (h, x = "") => `<div class="bg-white p-4 rounded-xl shadow ${x}">${h}</div>`;
@@ -482,7 +506,8 @@ function render(local) {
   const thuRow = dayRow("Basura sacada · jueves", to, "basuraJue",
     (pL && pJ ? amber(`Se recorrió: ${H[to]} no sacó ni el lunes ni el jueves de la semana pasada.`) : "")
     + (missed(viewWeek, "J") ? red(missed(viewWeek, "L") ? `Tampoco el jueves: ${H[to]} debe compensar el jueves de la siguiente semana (y ${H[mo]} el lunes).` : `Ya pasó el jueves sin marcarse: ${H[to]} debe compensar el lunes de la siguiente semana.`) : ""));
-  const gr = Object.assign({ disponibles: 5, capacidadMaxima: 5, ultimaRecarga: "", alertaEnviada: false }, DB.garrafones || {});
+  const gr = Object.assign({ disponibles: CAP_G, capacidadMaxima: CAP_G, ultimaRecarga: "", alertaEnviada: false }, DB.garrafones || {}, { capacidadMaxima: CAP_G });
+  gr.disponibles = Math.min(gr.disponibles, CAP_G);
   const bajo = gr.disponibles <= 1;
   const garrCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Stock de garrafones</h2><div class="p-3 rounded-lg border ${bajo ? "bg-red-50 border-red-300" : "bg-sky-50 border-sky-200"}"><p class="text-lg font-black ${bajo ? "text-red-700" : "text-sky-900"}">${gr.disponibles} de ${gr.capacidadMaxima} disponibles${bajo ? " ⚠️" : ""}</p><div class="flex gap-1 text-2xl my-1">${Array.from({ length: gr.capacidadMaxima }, (_, i) => `<span class="${i < gr.disponibles ? "" : "opacity-25 grayscale"}">💧</span>`).join("")}</div><p class="text-xs text-gray-500">Última recarga: ${gr.ultimaRecarga || "sin registro"}</p></div><div class="space-y-2 mt-3"><button onclick="garr('uso')" class="w-full ${bajo ? "bg-red-600" : "bg-sky-600"} text-white font-medium py-2 rounded-lg text-sm">Puse un garrafón en el dispensador</button><button onclick="garr('recarga')" class="w-full bg-emerald-600 text-white font-medium py-2 rounded-lg text-sm">Rellenar / Llegó el repartidor</button><div class="grid grid-cols-2 gap-2"><button onclick="garr(-1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">− 1 (corregir)</button><button onclick="garr(1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">+ 1 (corregir)</button></div></div>`);
   const swapCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-1">Ceder turno de basura</h2><p class="text-xs text-gray-500 mb-2">Cambia un lunes o jueves puntual sin mover la rotación.</p><div class="space-y-2"><input type="date" value="${swapF.date}" onchange="swapF.date=this.value" class="w-full border border-gray-300 rounded-lg p-2 text-sm">${sel(swapF.to, "swapF.to=this.value")}<label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" ${swapF.both ? "checked" : ""} onchange="swapF.both=this.checked" class="h-4 w-4"> Ceder lunes y jueves de esa semana</label><button onclick="ceder()" class="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg text-sm">Ceder turno</button></div>`);
@@ -499,7 +524,7 @@ function render(local) {
     + card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Fila de garrafones</h2>
       <div class="p-3 bg-amber-50 border border-amber-100 rounded-lg flex justify-between items-center gap-2">
       <div><span class="text-xs font-semibold text-amber-700 uppercase">Siguiente por ir</span><p class="text-lg font-bold text-amber-900">${H[mod4(g.water || 0)]}</p></div>
-      <div class="flex flex-col gap-1.5"><button onclick="water(1)" class="bg-amber-600 text-white px-3 py-1.5 text-xs font-bold rounded-lg">¡Ya compré el garrafón!</button>
+      <div class="flex flex-col gap-1.5"><button onclick="compreGarrafones()" class="bg-amber-600 text-white px-3 py-1.5 text-xs font-bold rounded-lg">¡Ya compré los garrafones!</button>
       <button onclick="water(-1)" class="bg-gray-200 text-gray-700 px-3 py-1.5 text-xs font-bold rounded-lg">← Regresar turno</button></div></div>`)
     + garrCard + swapCard + ausCard + deudaCard;
 
