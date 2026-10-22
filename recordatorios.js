@@ -243,6 +243,7 @@ async function run() {
   const now = ahora();
   let cambio = false;
 
+  console.log(`Diagnóstico: hora local ${now.hour}:00 (${now.date}) · compras con deuda en ${now.month}: ${calcularLiquidacion((DB["mes-" + now.month] || {}).shop).length} · compras ya enviado hoy: ${!!sent[now.date + "-compras"]}`);
   for (const m of planear(DB, now)) {
     if (sent[m.key]) continue;
     await enviar({ ...armar(m.texto, TEL, MAP), sufijo: m.sufijo });
