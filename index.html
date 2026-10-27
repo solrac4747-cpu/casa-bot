@@ -442,7 +442,13 @@ function garr(a) {
   const gr = DB.garrafones || {};
   if (a === "uso") {
     if (gr.disponibles <= 1) {
-      notificarGrupoCasa(`⚠️ *¡ALERTA GARRAFONES!* Queda(n) solo *${gr.disponibles}* garrafón(es) disponible(s). Toca pedir agua.`);
+      const idxEncargado = mod4(G().water || 0);
+      const nombreEncargado = H[idxEncargado];
+      const avisoTurno = nombreEncargado === "Carlos"
+        ? `Le toca comprarlos/pedirlos a *Carlos*.`
+        : `Le toca comprarlos/pedirlos a *${nombreEncargado}*.`;
+
+      notificarGrupoCasa(`⚠️ *¡ALERTA GARRAFONES!*\nQueda(n) solo *${gr.disponibles}* garrafón(es) disponible(s). ${avisoTurno}`);
     }
   } else if (a === "recarga") {
     notificarGrupoCasa(`💧 *Garrafones recargados*: Stock completo (${CAP_G}/${CAP_G} disponibles).`);
