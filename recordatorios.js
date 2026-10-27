@@ -277,7 +277,12 @@ async function run() {
   const gr = DB.garrafones;
   if (gr && gr.disponibles <= 1 && !gr.alertaEnviada && now.hour >= 9 && now.hour < 21) {
     const cap = CAP_G;
-    await enviar(armar(gr.disponibles === 1 ? `🚰 Alerta de agua: Queda solo 1 garrafón de los ${cap}. Toca pedir esta tarde.` : `🚰 Alerta de agua: Ya no quedan garrafones (0 de ${cap}). Toca pedir esta tarde.`, TEL));
+    const idxTurno = mod4(G().water || 0);
+    const textoBase = gr.disponibles === 1
+      ? `🚰 *Alerta de agua*: Queda solo 1 garrafón de los ${cap}. Le toca comprarlos/pedirlos hoy a {{${idxTurno}}}.`
+      : `🚰 *Alerta de agua*: Ya no quedan garrafones (0 de ${cap}). Le toca comprarlos/pedirlos hoy a {{${idxTurno}}}.`;
+
+    await enviar(armar(textoBase, TEL));
     if (!DRY_RUN) {
       const w = await sb("estado", {
         method: "POST",
@@ -286,7 +291,7 @@ async function run() {
       });
       if (!w.ok) console.log("No se pudo actualizar alertaEnviada:", w.status, await w.text());
     }
-    console.log("Alerta de garrafones enviada");
+    console.log("Alerta de garrafones enviada con responsable etiquetado");
   }
 
   // Guardar en Supabase registro de recordatorios ya despachados para evitar repeticiones
