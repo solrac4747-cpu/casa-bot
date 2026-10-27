@@ -1,12 +1,17 @@
-// Bot de recordatorios de la casa (WhatsApp, vía Whapi.cloud).
+// Bot de recordatorios de la casa (WhatsApp, vía Evolution API v2).
 // Lee los datos de la app en Supabase y manda los avisos al grupo.
-// Requiere Node 18 o superior (usa fetch). No tiene dependencias.
+// Requiere Node 18 o superior (usa fetch). Sin dependencias externas.
 
-const TZ = "America/Tijuana";                 // Mexicali
+const TZ = "America/Tijuana";                               // Mexicali
 const H = ["Bryan/Uriel", "Ricardo", "Erick", "Carlos"];    // orden oficial
-const CAP_G = 6;                                              // capacidad total de garrafones
-/* El orden oficial es H. En Supabase los datos viejos se guardaron en el orden anterior (..., Carlos, Erick):
-   al leer y al escribir se intercambian solo los lugares 2 y 3 (la misma función sirve en los dos sentidos). */
+const CAP_G = 6;                                            // capacidad total de garrafones
+
+const EVOLUTION_URL = process.env.EVOLUTION_URL || "https://evolution-api-4upu.onrender.com";
+const EVOLUTION_APIKEY = process.env.EVOLUTION_APIKEY || "MiClaveSeguraCasa2026";
+const INSTANCE = process.env.EVOLUTION_INSTANCE || "casa-bot";
+const DEFAULT_GRUPO = "120363398553193180@g.us";
+
+/* Intercambio de índices 2 y 3 para compatibilidad histórica con Supabase */
 const sw = i => (i === 2 ? 3 : i === 3 ? 2 : i);
 const swArr = a => (Array.isArray(a) && a.length === 4 ? [a[0], a[1], a[3], a[2]] : a);
 function ordenDoc(id, d) {
@@ -27,11 +32,12 @@ function ordenDoc(id, d) {
   } else if (id === "ausencias") (x.r || []).forEach(r => num(r, "p"));
   return x;
 }
-const PAGO_IMELDA_DOW = 2;                    // día del pago a Imelda: martes (0=domingo ... 6=sábado)
-const HORA_NOCHE = 20;                        // recordatorios de basura/Imelda: desde las 8:00 pm
-const HORA_RENTA = 9;
-const HORA_COMPRAS = 14;                      // resumen de deudas de compras: desde las 2:00 pm (hora de Mexicali)
-const HORA_RECIBOS = 9;                       // alertas de recibos (48 h y 24 h antes): desde las 9:00 am                         // aviso de renta el día 4: desde las 9:00 am
+
+const PAGO_IMELDA_DOW = 2; // Martes
+const HORA_NOCHE = 20;      // 8:00 PM Mexicali (basura / Imelda)
+const HORA_RENTA = 9;       // 9:00 AM Mexicali
+const HORA_COMPRAS = 14;    // 2:00 PM Mexicali (liquidación compras)
+const HORA_RECIBOS = 9;     // 9:00 AM Mexicali (servicios y recibos)
 
 /* ---------- Fechas ---------- */
 const mod4 = n => ((n % 4) + 4) % 4;
@@ -48,7 +54,7 @@ function ahora(d = new Date()) {
   return { date: `${p.year}-${p.month}-${p.day}`, hour: +p.hour, day: +p.day, month: `${p.year}-${p.month}` };
 }
 
-/* ---------- Mismas reglas que la app ---------- */
+/* ---------- Reglas de negocio de la casa ---------- */
 let DB = {}, HOY = "";
 const G = () => DB.global;
 const hoyStr = () => HOY;
@@ -69,7 +75,7 @@ const missed = (w, k) => {
   return w >= G().aW && !W[k === "L" ? "basuraLun" : "basuraJue"] && HOY > addDays(w, k === "L" ? 0 : 3);
 };
 
-/* ===== NÚCLEO DE BASURA (idéntico en la app y en el bot) ===== */
+/* ===== Núcleo de Basura ===== */
 let SIM = null;
 const rangos = () => (DB.ausencias || {}).r || [];
 const away = (p, d) => rangos().some(x => x.p === p && d >= x.d1 && d <= x.d2);
@@ -99,14 +105,10 @@ function slots() {
   }
   return (SIM = { S, deudas });
 }
-const monOwner = w => { const x = slots().S[w + "L"]; return x ? x.o : weekBoss(w); };
-const thuOwner = w => { const x = slots().S[w + "J"]; return x ? x.o : weekBoss(w); };
-const deudaBasura = () => slots().deudas.filter(x => !x.pagada);
-
 
 const cuentaTxt = i => {
   const c = (DB.cuentas || {})[i] || {};
-  return c.num ? `Depositar a ${H[i]}${c.ben ? " (" + c.ben + ")" : ""}${c.bank ? " · " + c.bank : ""} · CLABE ${c.num}` : `Depositar a ${H[i]} (su CLABE aún no está capturada en la app)`;
+  return c.num ? `Depositar a ${H[i]}${c.ben ? " (" + c.ben + ")" : ""}${c.bank ? " · " + c.bank : ""} · CLABE ${c.num}` : `Depositar a ${H[i]} (CLABE no capturada aún)`;
 };
 
 function planear(DBin, now) {
@@ -120,10 +122,10 @@ function planear(DBin, now) {
       const k = dowM === 1 ? "L" : "J", x = slots().S[wk + k];
       if (x) {
         let t = `🗑️ Recordatorio: mañana ${k === "L" ? "lunes" : "jueves"} pasa la basura. Le toca sacarla a ${tk(x.o)}.`;
-        if (x.cubre) t += ` 🧳 Cubre a ${H[x.cubre.titular]}, que está fuera de casa; ${H[x.cubre.titular]} le repone un turno.`;
+        if (x.cubre) t += ` 🧳 Cubre a ${H[x.cubre.titular]}, que está fuera; ${H[x.cubre.titular]} le repone un turno.`;
         else if (x.repone) t += ` 🔁 Es la reposición del turno que ${H[x.repone.acreedor]} le cubrió.`;
         else if (x.swap) t += ` (Cambio puntual; le tocaba a ${H[x.base]}.)`;
-        else if (x.base !== weekBoss(wk)) t += " (Es su compensación por un turno no sacado.)";
+        else if (x.base !== weekBoss(wk)) t += " (Compensación por turno no sacado.)";
         out.push({ key: `${manana}-${k === "L" ? "lun" : "jue"}`, texto: t });
       }
     }
@@ -134,7 +136,7 @@ function planear(DBin, now) {
 
   if (now.day === 4 && now.hour >= HORA_RENTA) {
     const rent = arr((DB["mes-" + now.month] || {}).rent), pend = H.filter((h, i) => !rent[i]);
-    if (pend.length) out.push({ key: `${now.month}-renta`, texto: `📅 Recordatorio de renta: hoy es 4 y la renta se paga antes del día 5. Encargado de cobrar este mes: ${tk(monthBoss(now.month))}. Todavía no aparecen como pagados: ${pend.join(", ")}. Márquenlo en la app cuando paguen.` });
+    if (pend.length) out.push({ key: `${now.month}-renta`, texto: `📅 Recordatorio de renta: hoy es 4 y la renta se paga antes del día 5. Encargado este mes: ${tk(monthBoss(now.month))}. Pendientes de marcar pago: ${pend.join(", ")}.` });
   }
 
   if (now.hour >= HORA_RECIBOS) {
@@ -158,19 +160,18 @@ function planear(DBin, now) {
     const tr = calcularLiquidacion((DB["mes-" + now.month] || {}).shop);
     if (tr.length) {
       out.push({
-        key: `${now.date}-compras`, sufijo: "@s.whatsapp.net",
-        texto: `🛒 *Recordatorio de Compras (2:00 PM)*\n\nSaldos pendientes por liquidar en la casa:\n${tr.map(t => `• ${tk(H.indexOf(t.de))} le debe *$${t.monto.toFixed(2)}* a ${tk(H.indexOf(t.a))}`).join("\n")}\n\nRevisen los detalles y cuentas CLABE en la app para liquidar sus transferencias.`
+        key: `${now.date}-compras`,
+        texto: `🛒 *Recordatorio de Compras*\n\nSaldos pendientes por liquidar:\n${tr.map(t => `• ${tk(H.indexOf(t.de))} le debe *$${t.monto.toFixed(2)}* a ${tk(H.indexOf(t.a))}`).join("\n")}\n\nRevisen la app para realizar las transferencias pendientes.`
       });
     }
   }
   return out;
 }
 
-/* ---------- Liquidación de compras (quién le debe a quién) ---------- */
-// Misma lógica que calcularLiquidacionMes de la app: centavos, solo lo no marcado como pagado, simplificación voraz.
+/* ---------- Liquidación estilo Splitwise ---------- */
 function calcularLiquidacion(compras) {
   const cent = n => Math.round((+n || 0) * 100);
-  const saldo = Object.fromEntries(H.map(h => [h, 0]));          // + le deben · − debe
+  const saldo = Object.fromEntries(H.map(h => [h, 0]));
   (compras || []).forEach(it => {
     const pagador = it.pagado_por || it.b;
     if (!(pagador in saldo)) return;
@@ -190,51 +191,61 @@ function calcularLiquidacion(compras) {
   return out;
 }
 
-/* ---------- Envío ---------- */
-function armar(texto, TEL, MAP = {}) {
+/* ---------- Formateo de menciones (@usuario) ---------- */
+function armar(texto, TEL) {
   const nums = [];
   const t = texto.replace(/\{\{(\d)\}\}/g, (m, i) => {
-    const v = TEL[H[+i]]; const lista = (Array.isArray(v) ? v : v ? [v] : []).map(n => String(n).replace(/\D/g, "")).map(n => MAP[n.slice(-10)] || n);
+    const v = TEL[H[+i]];
+    const lista = (Array.isArray(v) ? v : v ? [v] : []).map(n => String(n).replace(/\D/g, ""));
     if (!lista.length) return H[+i];
     nums.push(...lista);
     return lista.map(n => "@" + n).join(" y ");
   });
-  return { texto: t, nums };
+  return { texto: t, nums: [...new Set(nums)] };
 }
 
-async function mapaParticipantes(GRUPO, TOKEN) {
-  try {
-    const r = await fetch(`https://gate.whapi.cloud/groups/${encodeURIComponent(GRUPO)}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
-    if (!r.ok) { console.log("No pude leer los participantes del grupo:", r.status); return {}; }
-    const g = await r.json(), map = {};
-    (g.participants || []).forEach(p => { const d = String(p.id || "").split("@")[0].replace(/\D/g, ""); if (d.length >= 10) map[d.slice(-10)] = d; });
-    return map;
-  } catch (e) { console.log("No pude leer los participantes del grupo:", e.message); return {}; }
-}
-
+/* ---------- Ejecución principal ---------- */
 async function run() {
-  const { SUPABASE_URL: U, SUPABASE_KEY: K, WHAPI_TOKEN, GRUPO_ID, TELEFONOS, PRUEBA, DRY_RUN } = process.env;
+  const { SUPABASE_URL: U, SUPABASE_KEY: K, GRUPO_ID, TELEFONOS, PRUEBA, DRY_RUN } = process.env;
   const TEL = JSON.parse(TELEFONOS || "{}");
-  const GRUPO = (GRUPO_ID || "").trim().replace(/^["']+|["']+$/g, "");
-  const TOKEN = (WHAPI_TOKEN || "").trim();
-  if (!GRUPO && !DRY_RUN) throw new Error("El secreto GRUPO_ID esta vacio o no existe");
-  const sb = (path, opt = {}) => fetch(`${U}/rest/v1/${path}`, { ...opt, headers: { apikey: K, Authorization: `Bearer ${K}`, "Content-Type": "application/json", ...(opt.headers || {}) } });
-  const enviar = async ({ texto, nums, sufijo }) => {
+  const GRUPO = (GRUPO_ID || DEFAULT_GRUPO).trim().replace(/^["']+|["']+$/g, "");
+
+  const sb = (path, opt = {}) => fetch(`${U}/rest/v1/${path}`, {
+    ...opt,
+    headers: { apikey: K, Authorization: `Bearer ${K}`, "Content-Type": "application/json", ...(opt.headers || {}) }
+  });
+
+  const enviar = async ({ texto, nums }) => {
     if (DRY_RUN) { console.log("[DRY_RUN]", texto, nums); return; }
-    const r = await fetch("https://gate.whapi.cloud/messages/text", {
-      method: "POST", headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ to: GRUPO, body: texto, mentions: [...new Set(nums)].map(n => n + (sufijo || "")) })
+    const url = `${EVOLUTION_URL}/message/sendText/${INSTANCE}`;
+    const payload = {
+      number: GRUPO,
+      text: texto
+    };
+    if (nums && nums.length) {
+      payload.mentioned = nums;
+    }
+
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": EVOLUTION_APIKEY
+      },
+      body: JSON.stringify(payload)
     });
-    if (!r.ok) throw new Error("Whapi: " + r.status + " " + await r.text());
+
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(`Evolution API: ${r.status} ${errText}`);
+    }
   };
 
-  const MAP = DRY_RUN ? {} : await mapaParticipantes(GRUPO, TOKEN);
-  if (Object.keys(MAP).length) {
-    Object.entries(TEL).forEach(([n, v]) => (Array.isArray(v) ? v : [v]).forEach(x => {
-      const d = String(x).replace(/\D/g, ""); console.log(MAP[d.slice(-10)] ? `OK ${n}: ${MAP[d.slice(-10)]}` : `AVISO ${n}: el numero ${d} no aparece en el grupo`);
-    }));
+  if (PRUEBA === "true" || PRUEBA === "1") {
+    await enviar(armar("✅ Prueba del bot de la casa conectada a Evolution API. Hola {{1}}", TEL));
+    console.log("Prueba enviada exitosamente");
+    return;
   }
-  if (PRUEBA === "true" || PRUEBA === "1") { await enviar(armar("✅ Prueba del bot de la casa. Hola {{1}}", TEL, MAP)); console.log("Prueba enviada"); return; }
 
   const res = await sb("estado?select=id,data");
   if (!res.ok) throw new Error("Supabase: " + res.status + " " + await res.text());
@@ -243,42 +254,45 @@ async function run() {
   const now = ahora();
   let cambio = false;
 
-  console.log(`Diagnóstico: hora local ${now.hour}:00 (${now.date}) · compras con deuda en ${now.month}: ${calcularLiquidacion((DB["mes-" + now.month] || {}).shop).length} · compras ya enviado hoy: ${!!sent[now.date + "-compras"]}`);
+  console.log(`Diagnóstico: hora local ${now.hour}:00 (${now.date}) · compras pendientes: ${calcularLiquidacion((DB["mes-" + now.month] || {}).shop).length}`);
+
   for (const m of planear(DB, now)) {
     if (sent[m.key]) continue;
-    await enviar({ ...armar(m.texto, TEL, MAP), sufijo: m.sufijo });
-    sent[m.key] = true; cambio = true;
-    console.log("Enviado:", m.key);
+    await enviar(armar(m.texto, TEL));
+    sent[m.key] = true;
+    cambio = true;
+    console.log("Recordatorio enviado:", m.key);
   }
+
+  // Alerta de garrafones en stock crítico
   const gr = DB.garrafones;
   if (gr && gr.disponibles <= 1 && !gr.alertaEnviada && now.hour >= 9 && now.hour < 21) {
     const cap = CAP_G;
-    await enviar(armar(gr.disponibles === 1 ? `🚰 Alerta de agua: Queda solo 1 garrafón de los ${cap}. Toca pedir esta tarde.` : `🚰 Alerta de agua: Ya no quedan garrafones (0 de ${cap}). Toca pedir esta tarde.`, TEL, MAP));
+    await enviar(armar(gr.disponibles === 1 ? `🚰 Alerta de agua: Queda solo 1 garrafón de los ${cap}. Toca pedir esta tarde.` : `🚰 Alerta de agua: Ya no quedan garrafones (0 de ${cap}). Toca pedir esta tarde.`, TEL));
     if (!DRY_RUN) {
-      const w = await sb("estado", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify([{ id: "garrafones", data: { ...gr, alertaEnviada: true } }]) });
-      if (!w.ok) console.log("No pude guardar alertaEnviada (la alerta se repetira):", w.status, await w.text());
+      const w = await sb("estado", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates" },
+        body: JSON.stringify([{ id: "garrafones", data: { ...gr, alertaEnviada: true } }])
+      });
+      if (!w.ok) console.log("No se pudo actualizar alertaEnviada:", w.status, await w.text());
     }
     console.log("Alerta de garrafones enviada");
   }
+
+  // Guardar en Supabase registro de recordatorios ya despachados para evitar repeticiones
   if (cambio && !DRY_RUN) {
     const corte = addDays(now.date, -40).slice(0, 7);
     Object.keys(sent).forEach(k => { if (k.slice(0, 7) < corte) delete sent[k]; });
-    await sb("estado", { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify([{ id: "bot", data: { sent } }]) });
-  } else if (!cambio) console.log("Nada que enviar ahora", now);
-}
-
-async function setOffline(TOKEN) {
-  if (!TOKEN || process.env.DRY_RUN) return;
-  try {
-    const u = "https://gate.whapi.cloud/settings", h = { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" };
-    const g = await fetch(u, { headers: h });
-    if (!g.ok || (await g.json()).offline_mode === true) return;      // ya está activo o no se pudo leer: no tocar
-    await fetch(u, { method: "PATCH", headers: h, body: JSON.stringify({ offline_mode: true }) });
-  } catch (e) { console.log("setOffline:", e.message); }
-}
-async function main() {
-  try { await run(); } finally { await setOffline((process.env.WHAPI_TOKEN || "").trim()); }
+    await sb("estado", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify([{ id: "bot", data: { sent } }])
+    });
+  } else if (!cambio) {
+    console.log("Sin recordatorios pendientes en este ciclo.", now);
+  }
 }
 
 module.exports = { planear, armar, ahora, calcularLiquidacion, ordenDoc };
-if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
+if (require.main === module) run().catch(e => { console.error(e); process.exit(1); });
