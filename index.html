@@ -125,11 +125,38 @@
 </nav>
 
 <script>
+/* ---------- Notificaciones WhatsApp ---------- */
+const WHATSAPP_CONFIG = {
+  url: 'https://evolution-api-4upu.onrender.com/message/sendText/casa-bot',
+  apiKey: 'MiClaveSeguraCasa2026',
+  groupId: '120363398553193180@g.us'
+};
+
+async function notificarGrupoCasa(textoMensaje) {
+  if (!navigator.onLine) return;
+  try {
+    const res = await fetch(WHATSAPP_CONFIG.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': WHATSAPP_CONFIG.apiKey
+      },
+      body: JSON.stringify({
+        number: WHATSAPP_CONFIG.groupId,
+        text: textoMensaje
+      })
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('Error enviando notificación a WhatsApp:', error);
+  }
+}
+
 const SUPABASE_URL = "https://qopinzgdnczovxyllhvi.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcGluemdkbmN6b3Z4eWxsaHZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0NTU1OTMsImV4cCI6MjEwODAzMTU5M30.c5gDmk0N3-07ZpiOEuhzJPBpVZm16hT0pITLibumDIg";
 
 const H = ["Bryan/Uriel", "Ricardo", "Erick", "Carlos"];    // orden oficial
-const CAP_G = 6;                                              // capacidad total de garrafones
+const CAP_G = 6;                                            // capacidad total de garrafones
 /* El orden oficial es H. En Supabase los datos viejos se guardaron en el orden anterior (..., Carlos, Erick):
    al leer y al escribir se intercambian solo los lugares 2 y 3 (la misma función sirve en los dos sentidos). */
 const sw = i => (i === 2 ? 3 : i === 3 ? 2 : i);
@@ -199,7 +226,7 @@ function missed(w, k) {
   return w >= G().aW && !W[k === "L" ? "basuraLun" : "basuraJue"] && passed(w, k === "L" ? 0 : 3);
 }
 const hoyStr = () => ymd(new Date());
-/* ===== NÚCLEO DE BASURA (idéntico en la app y en el bot) ===== */
+/* ===== NÚCLEO DE BASURA ===== */
 let SIM = null;
 const rangos = () => (DB.ausencias || {}).r || [];
 const away = (p, d) => rangos().some(x => x.p === p && d >= x.d1 && d <= x.d2);
@@ -234,8 +261,6 @@ const thuOwner = w => { const x = slots().S[w + "J"]; return x ? x.o : weekBoss(
 const deudaBasura = () => slots().deudas.filter(x => !x.pagada);
 
 /* ---------- Guardado y sincronización ---------- */
-/* La cola de cambios pendientes (dirty) también se guarda en el teléfono, para que
-   no se pierda si se cierra la app estando sin conexión. */
 const DKEY = KEY + "-dirty";
 const saveDirty = () => { try { localStorage.setItem(DKEY, JSON.stringify([...dirty])); } catch (e) {} };
 function persist() {
@@ -282,7 +307,7 @@ async function initShared() {
       if (r.data && Object.keys(r.data).length) R[r.id] = ordenDoc(r.id, r.data);
     });
     Object.keys(DB).forEach(id => { if (!R[id]) dirty.add(id); });
-    for (const id in R) if (!dirty.has(id)) DB[id] = R[id]; // lo pendiente de enviar no se pisa con lo de la nube
+    for (const id in R) if (!dirty.has(id)) DB[id] = R[id];
     if (!R.global && !DB.global && old && old.fields) migrate(old);
     if (!DB.global) { G(); dirty.add("global"); }
     persist(); render(true);
@@ -299,7 +324,7 @@ async function initShared() {
   } catch (e) { if (!canal) sb = null; setStatus(!navigator.onLine ? "Sin conexión · usando la copia de este dispositivo" : "Error: " + ((e && (e.message || e.details)) || String(e))); }
 }
 
-/* ---------- Acciones ---------- */
+/* ---------- Acciones con Notificaciones ---------- */
 function switchTab(t) {
   document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
   $(t).classList.add("active");
@@ -313,11 +338,44 @@ function jumpWeek(v) { if (v) { viewWeek = ymd(mondayOf(new Date(v + "T00:00")))
 function navMonth(n) { const [y, m] = viewMonth.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); viewMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; render(true); }
 function jumpMonth(v) { if (v) { viewMonth = v; render(true); } }
 const W_ = () => "sem-" + viewWeek, M_ = () => "mes-" + viewMonth;
-function setWeekBoss(v) { mut(W_(), d => d.boss = +v); }
-function toggleTask(k) { mut(W_(), d => d[k] = !d[k]); }
-function water(n) { mut("global", d => d.water = mod4((d.water || 0) + n)); }
-function setMonthBoss(v) { mut(M_(), d => d.boss = +v); }
-function setRent(i) { mut(M_(), d => { d.rent = arr(d.rent); d.rent[i] = !d.rent[i]; }); }
+
+function setWeekBoss(v) { 
+  mut(W_(), d => d.boss = +v);
+  notificarGrupoCasa(`📋 *Control Casa*: Se asignó a *${H[+v]}* como responsable de la semana.`);
+}
+
+function toggleTask(k) { 
+  const W = DB[W_()] || {};
+  const willBeChecked = !W[k];
+  mut(W_(), d => d[k] = willBeChecked);
+
+  if (willBeChecked) {
+    const nombre = k === "basuraLun" ? "Basura (Lunes)" : k === "basuraJue" ? "Basura (Jueves)" : "Pago a Imelda";
+    notificarGrupoCasa(`✅ *Tarea completada*: Se marcó *${nombre}* como realizada.`);
+  }
+}
+
+function water(n) { 
+  mut("global", d => d.water = mod4((d.water || 0) + n));
+  if (n > 0) {
+    const siguiente = H[mod4(G().water || 0)];
+    notificarGrupoCasa(`💧 *Fila de garrafones*: Siguiente en turno para ir por agua: *${siguiente}*.`);
+  }
+}
+
+function setMonthBoss(v) { 
+  mut(M_(), d => d.boss = +v);
+  notificarGrupoCasa(`💵 *Control Casa*: *${H[+v]}* es el encargado de cobrar la renta de este mes.`);
+}
+
+function setRent(i) { 
+  const yaPagado = arr((DB[M_()] || {}).rent)[i];
+  mut(M_(), d => { d.rent = arr(d.rent); d.rent[i] = !d.rent[i]; });
+  if (!yaPagado) {
+    notificarGrupoCasa(`💵 *Renta pagada*: *${H[i]}* registró su pago de renta de este mes.`);
+  }
+}
+
 let armed = null, toastT = null;
 function toast(m) { const t = $("toast"); t.textContent = m; t.classList.remove("hidden"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add("hidden"), 2200); }
 function arm(k, fn) {
@@ -335,8 +393,20 @@ function armClear(k) {
   armed = k; render(true);
   setTimeout(() => { if (armed === k) { armed = null; render(true); } }, 4000);
 }
-function togSvc(k, i) { mut(M_(), d => { d.svc = d.svc || {}; d.svc[k] = arr(d.svc[k]); d.svc[k][i] = !d.svc[k][i]; }); }
-function compreGarrafones() { water(1); garr("recarga"); }   // avanza la fila y deja el stock en 6
+
+function togSvc(k, i) { 
+  const yaPagado = arr(((DB[M_()] || {}).svc || {})[k])[i];
+  mut(M_(), d => { d.svc = d.svc || {}; d.svc[k] = arr(d.svc[k]); d.svc[k][i] = !d.svc[k][i]; });
+  if (!yaPagado) {
+    notificarGrupoCasa(`💧 *Servicio pagado*: *${H[i]}* pagó su parte de *${k.toUpperCase()}*.`);
+  }
+}
+
+function compreGarrafones() { 
+  water(1); 
+  garr("recarga"); 
+}
+
 function garr(a) {
   mut("garrafones", d => {
     d.capacidadMaxima = CAP_G;
@@ -348,14 +418,26 @@ function garr(a) {
     if (d.disponibles > 1 || d.alertaEnviada == null) d.alertaEnviada = false;
   });
   clearTimeout(timer); flush();
+
+  const gr = DB.garrafones || {};
+  if (a === "uso") {
+    if (gr.disponibles <= 1) {
+      notificarGrupoCasa(`⚠️ *¡ALERTA GARRAFONES!* Queda(n) solo *${gr.disponibles}* garrafón(es) disponible(s). Toca pedir agua.`);
+    }
+  } else if (a === "recarga") {
+    notificarGrupoCasa(`💧 *Garrafones recargados*: Stock completo (${CAP_G}/${CAP_G} disponibles).`);
+  }
 }
+
 function ceder() {
   const { date, to, both } = swapF, dw = date ? new Date(date + "T00:00").getDay() : -1;
   if (dw !== 1 && dw !== 4) { toast("Elige una fecha que sea lunes o jueves"); return; }
   const w = ymd(mondayOf(new Date(date + "T00:00")));
   mut("sem-" + w, d => { if (both || dw === 1) d.swapLun = +to; if (both || dw === 4) d.swapJue = +to; });
   toast("Cambio guardado");
+  notificarGrupoCasa(`🔄 *Cambio de turno*: Se cedió el turno de basura a *${H[+to]}* para el ${date}.`);
 }
+
 function quitarCambio(k) { mut(W_(), d => { delete d[k === "L" ? "swapLun" : "swapJue"]; }); }
 function addAus() {
   const { p, d1, d2 } = ausF;
@@ -364,13 +446,24 @@ function addAus() {
   toast("Ausencia registrada");
 }
 function delAus(id) { arm("aus" + id, () => mut("ausencias", d => { d.r = (d.r || []).filter(x => x.id !== id); })); }
+
 function addRec() {
   const f = { ...recF }, m = parseFloat(f.m) || 0;
   if (!f.n.trim() || m <= 0 || !f.due) { toast("Escribe nombre, monto y fecha límite"); return; }
   recF = { n: "", m: "", due: "", enc: f.enc };
   mut(M_(), d => { d.rec = d.rec || []; d.rec.push({ id: Date.now(), n: f.n.trim(), m, due: f.due, enc: +f.enc, paid: F4() }); });
+  notificarGrupoCasa(`🧾 *Nuevo recibo*: ${f.n.trim()} por $${m.toFixed(2)} ($${(m/4).toFixed(2)} c/u). Vence: ${f.due}. Recibe: ${H[+f.enc]}.`);
 }
-function togRec(id, i) { mut(M_(), d => { const r = (d.rec || []).find(x => x.id === id); if (r) { r.paid = arr(r.paid); r.paid[i] = !r.paid[i]; } }); }
+
+function togRec(id, i) { 
+  const r = ((DB[M_()] || {}).rec || []).find(x => x.id === id);
+  const yaPagado = r ? arr(r.paid)[i] : false;
+  mut(M_(), d => { const it = (d.rec || []).find(x => x.id === id); if (it) { it.paid = arr(it.paid); it.paid[i] = !it.paid[i]; } });
+  if (r && !yaPagado) {
+    notificarGrupoCasa(`🧾 *Recibo pagado*: *${H[i]}* pagó su parte de *${r.n}*.`);
+  }
+}
+
 function delRec(id) { arm("rec" + id, () => mut(M_(), d => { d.rec = (d.rec || []).filter(x => x.id !== id); })); }
 function setDue(k, v) { mut(M_(), d => { d.due = d.due || {}; d.due[k] = v; }); }
 function setTot(k, v) { mut(M_(), d => { d.tot = d.tot || {}; d.tot[k] = parseFloat(v) || 0; }); }
@@ -379,6 +472,7 @@ function liveQ(k, v) {
   document.querySelectorAll(".qn-" + k).forEach(e => e.textContent = q.toFixed(2));
   document.querySelectorAll(".qd-" + k).forEach(e => e.textContent = "$" + q.toFixed(2));
 }
+
 function addShop() {
   const c = $("shop-concept").value.trim(), m = parseFloat($("shop-amount").value) || 0;
   if (!c || m <= 0) { toast("Escribe un concepto y un monto mayor a 0"); return; }
@@ -391,17 +485,22 @@ function addShop() {
   mut(M_(), d => { d.shop = d.shop || []; d.shop.push({ id: Date.now(), c, m: monto_total, b: pagado_por, paid, pagado_por, participantes, monto_total, cuota_por_persona }); });
   $("shop-concept").value = ""; $("shop-amount").value = "";
   H.forEach((h, i) => { $("compra-part-" + i).checked = true; });
+  notificarGrupoCasa(`🛒 *Nueva compra*: *${pagado_por}* compró "${c}" por $${monto_total.toFixed(2)} ($${cuota_por_persona.toFixed(2)} c/u entre ${participantes.length}).`);
 }
-function togPaid(id, i) { mut(M_(), d => { const it = (d.shop || []).find(x => x.id === id); if (it) { it.paid = arr(it.paid); it.paid[i] = !it.paid[i]; } }); }
+
+function togPaid(id, i) { 
+  const it = ((DB[M_()] || {}).shop || []).find(x => x.id === id);
+  const yaPagado = it ? arr(it.paid)[i] : false;
+  mut(M_(), d => { const item = (d.shop || []).find(x => x.id === id); if (item) { item.paid = arr(item.paid); item.paid[i] = !item.paid[i]; } }); 
+  if (it && !yaPagado) {
+    notificarGrupoCasa(`✅ *Compra pagada*: *${H[i]}* le pagó a *${it.b || it.pagado_por}* por "${it.c}".`);
+  }
+}
 
 /* ---------- Liquidación estilo Splitwise ---------- */
-/* Para cada compra, cada participante (que no sea quien pagó) le debe su cuota a quien pagó,
-   salvo que ya esté marcado como pagado. Luego se simplifican los saldos netos con el método
-   voraz: el que más debe le paga al que más se le debe, hasta dejar todo en cero.
-   Funciona en centavos para evitar errores de decimales. Acepta compras viejas (sin participantes). */
 function calcularLiquidacionMes(compras) {
   const cent = n => Math.round((+n || 0) * 100);
-  const saldo = Object.fromEntries(H.map(h => [h, 0])); // + le deben · − debe
+  const saldo = Object.fromEntries(H.map(h => [h, 0]));
   (compras || []).forEach(it => {
     const pagador = it.pagado_por || it.b;
     if (!(pagador in saldo)) return;
@@ -427,6 +526,7 @@ function calcularLiquidacionMes(compras) {
   }
   return { saldos: Object.fromEntries(H.map(h => [h, saldo[h] / 100])), transferencias };
 }
+
 function renderLiquidacion(M) {
   const { saldos, transferencias } = calcularLiquidacionMes(M.shop || []);
   const filas = transferencias.map(t => `<div class="bg-gray-50 rounded-lg p-2.5"><div class="flex justify-between items-center gap-2"><p class="text-sm text-gray-800"><b>${esc(t.de)}</b> → <b>${esc(t.a)}</b></p><span class="text-sm font-black text-rose-700">$${t.monto.toFixed(2)}</span></div>${payInfo(t.a)}</div>`).join("");
@@ -468,7 +568,6 @@ const payInfo = b => {
   return (c.bank || c.num) ? `<p class="text-xs text-gray-700 mt-0.5">🏦 ${esc(c.bank || "")}${c.bank && c.num ? " · " : ""}<span class="font-mono">${esc(c.num || "")}</span>${c.num ? ` <button onclick="copyNum(${i})" class="text-indigo-600 font-bold ml-1">Copiar</button>` : ""}</p>` : "";
 };
 const lblMes = m => { const [y, n] = m.split("-").map(Number); return `${MES[n - 1]} ${y}`; };
-/* Meses con datos guardados (DB / Supabase) + el actual + el que se está viendo, del más nuevo al más viejo. */
 const mesesGuardados = () => {
   const s = new Set(Object.keys(DB).filter(k => /^mes-\d{4}-\d{2}$/.test(k)).map(k => k.slice(4)));
   s.add(curMonth()); s.add(viewMonth);
@@ -534,7 +633,6 @@ function render(local) {
   const cr = arr((DB["mes-" + curMonth()] || {}).rent), bar = $("alert-bar");
   const pendNow = new Date().getDate() >= 5 ? H.filter((h, i) => !cr[i]) : [];
   const cm = DB["mes-" + curMonth()] || {};
-  /* Servicios pendientes del mes en curso, por persona y por servicio (solo cuotas > $0). */
   const money = m => "$" + (Math.abs(m - Math.round(m)) < 0.005 ? Math.round(m) : m.toFixed(2));
   const svcPend = H.map((h, i) => {
     const items = [];
@@ -651,7 +749,7 @@ function actualizarOffline() {
 window.addEventListener("offline", () => { actualizarOffline(); setStatus("Sin conexión · cambios en cola local"); });
 window.addEventListener("online", () => {
   actualizarOffline(); setStatus("Reconectando…");
-  initShared(); // vuelve a leer la nube (sin pisar lo pendiente) y manda la cola con flush()
+  initShared();
   clearTimeout(timer); timer = setTimeout(flush, 600);
 });
 
@@ -724,10 +822,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   if (!action) return;
 
-  // Limpia el parámetro de la URL sin recargar la página para evitar que se repita
   window.history.replaceState({}, document.title, window.location.pathname);
 
-  // Pequeña espera para asegurar que la app haya cargado datos de Supabase/Local
   setTimeout(() => {
     if (action === "compra") {
       switchTab("compras");
@@ -754,9 +850,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }, 400);
 });
-
 </script>
-
-
 </body>
 </html>
