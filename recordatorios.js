@@ -195,12 +195,21 @@ function calcularLiquidacion(compras) {
 function armar(texto, TEL) {
   const nums = [];
   const t = texto.replace(/\{\{(\d)\}\}/g, (m, i) => {
-    const v = TEL[H[+i]];
+    const nombre = H[+i];
+
+    // Excluir a Carlos de las menciones push para evitar error de auto-mención
+    if (nombre === "Carlos") {
+      return "Carlos";
+    }
+
+    const v = TEL[nombre];
     const lista = (Array.isArray(v) ? v : v ? [v] : []).map(n => String(n).replace(/\D/g, ""));
-    if (!lista.length) return H[+i];
+    if (!lista.length) return nombre;
+
     nums.push(...lista);
     return lista.map(n => "@" + n).join(" y ");
   });
+
   return { texto: t, nums: [...new Set(nums)] };
 }
 
