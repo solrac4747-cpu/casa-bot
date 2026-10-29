@@ -27,7 +27,9 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          WHAPI_TOKEN: ${{ secrets.WHAPI_TOKEN }}
           GRUPO_ID: ${{ secrets.GRUPO_ID }}
           TELEFONOS: ${{ secrets.TELEFONOS }}
-          PRUEBA: ${{ inputs.prueba }}
+          EVOLUTION_URL: ${{ secrets.EVOLUTION_URL }}
+          EVOLUTION_APIKEY: ${{ secrets.EVOLUTION_APIKEY }}
+          EVOLUTION_INSTANCE: "casa-bot"
+          PRUEBA: ${{ github.event.inputs.prueba || 'false' }}
