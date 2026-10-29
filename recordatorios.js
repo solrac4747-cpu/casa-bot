@@ -193,7 +193,7 @@ function calcularLiquidacion(compras) {
 
 /* ---------- Formateo de menciones (@usuario) ---------- */
 function armar(texto, TEL) {
-  const nums = [];
+  const jids = [];
   const t = texto.replace(/\{\{(\d)\}\}/g, (m, i) => {
     const nombre = H[+i];
 
@@ -206,11 +206,24 @@ function armar(texto, TEL) {
     const lista = (Array.isArray(v) ? v : v ? [v] : []).map(n => String(n).replace(/\D/g, ""));
     if (!lista.length) return nombre;
 
-    nums.push(...lista);
-    return lista.map(n => "@" + n).join(" y ");
+    const representaciones = [];
+    lista.forEach(n => {
+      const diez = n.slice(-10);
+      // WhatsApp en México varía entre 521 y 52
+      const jid1 = `521${diez}@s.whatsapp.net`;
+      const jid2 = `52${diez}@s.whatsapp.net`;
+      const num1 = `521${diez}`;
+      const num2 = `52${diez}`;
+
+      jids.push(jid1, jid2, num1, num2);
+      // Se utiliza el número recibido para el @ visible en el mensaje
+      representaciones.push(`@${n}`);
+    });
+
+    return representaciones.join(" y ");
   });
 
-  return { texto: t, nums: [...new Set(nums)] };
+  return { texto: t, nums: [...new Set(jids)] };
 }
 
 /* ---------- Ejecución principal ---------- */
