@@ -130,8 +130,8 @@ const WHATSAPP_CONFIG = {
   url: 'https://evolution-api-4upu.onrender.com/message/sendText/casa-bot',
   apiKey: 'MiClaveSeguraCasa2026',
   groupId: '120363398553193180@g.us',
-  // Números a etiquetar (se excluye a Carlos por ser la cuenta emisora)
-  otrosIntegrantes: [
+  // Números a 10 dígitos de los demás integrantes (sin incluir a Carlos)
+  otros10Digitos: [
     "6681318521", // Bryan/Uriel
     "6681035576", // Ricardo
     "6862259187"  // Erick
@@ -140,6 +140,16 @@ const WHATSAPP_CONFIG = {
 
 async function notificarGrupoCasa(textoMensaje) {
   if (!navigator.onLine) return;
+
+  // Se envían los formatos exactos con y sin '1' con sufijo JID para forzar el etiquetado azul en WhatsApp
+  const mentionedJids = [];
+  WHATSAPP_CONFIG.otros10Digitos.forEach(num => {
+    mentionedJids.push(`521${num}@s.whatsapp.net`);
+    mentionedJids.push(`52${num}@s.whatsapp.net`);
+    mentionedJids.push(`521${num}`);
+    mentionedJids.push(`52${num}`);
+  });
+
   try {
     const res = await fetch(WHATSAPP_CONFIG.url, {
       method: 'POST',
@@ -150,7 +160,7 @@ async function notificarGrupoCasa(textoMensaje) {
       body: JSON.stringify({
         number: WHATSAPP_CONFIG.groupId,
         text: `${textoMensaje}\n\n📢 @todos`,
-        mentioned: WHATSAPP_CONFIG.otrosIntegrantes
+        mentioned: mentionedJids
       })
     });
     return await res.json();
