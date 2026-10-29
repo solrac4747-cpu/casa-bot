@@ -209,15 +209,13 @@ function armar(texto, TEL) {
     const representaciones = [];
     lista.forEach(n => {
       const diez = n.slice(-10);
-      // WhatsApp en México varía entre 521 y 52
       const jid1 = `521${diez}@s.whatsapp.net`;
       const jid2 = `52${diez}@s.whatsapp.net`;
       const num1 = `521${diez}`;
       const num2 = `52${diez}`;
 
       jids.push(jid1, jid2, num1, num2);
-      // Se utiliza el número recibido para el @ visible en el mensaje
-      representaciones.push(`@${n}`);
+      representaciones.push(`@521${diez}`);
     });
 
     return representaciones.join(" y ");
@@ -240,9 +238,14 @@ async function run() {
   const enviar = async ({ texto, nums }) => {
     if (DRY_RUN) { console.log("[DRY_RUN]", texto, nums); return; }
     const url = `${EVOLUTION_URL}/message/sendText/${INSTANCE}`;
+
+    // Compatibilidad total con Evolution API v2: envía 'text', 'textMessage' y 'textMessage.text'
     const payload = {
       number: GRUPO,
-      text: texto
+      text: texto,
+      textMessage: {
+        text: texto
+      }
     };
     if (nums && nums.length) {
       payload.mentioned = nums;
