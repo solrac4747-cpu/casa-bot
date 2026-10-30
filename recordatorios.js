@@ -239,7 +239,7 @@ async function run() {
     if (DRY_RUN) { console.log("[DRY_RUN]", texto, nums); return; }
     const url = `${EVOLUTION_URL}/message/sendText/${INSTANCE}`;
 
-    // Compatibilidad total con Evolution API v2: envía 'text', 'textMessage' y 'textMessage.text'
+    // Payload compatible con Evolution API v2
     const payload = {
       number: GRUPO,
       text: texto,
