@@ -735,8 +735,8 @@ function render(local) {
   const money = m => "$" + (Math.abs(m - Math.round(m)) < 0.005 ? Math.round(m) : m.toFixed(2));
   const svcPend = H.map((h, i) => {
     const items = [];
-    [["internet", "Internet", 225], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].forEach(([k, n, fx]) => {
-      const q = fx || ((cm.tot || {})[k] || 0) / 4;
+    [["internet", "Internet", 900], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].forEach(([k, n, fx]) => {
+      const q = (fx || ((cm.tot || {})[k] || 0)) / 4;
       if (q > 0 && !arr((cm.svc || {})[k])[i]) items.push(`${n}: ${money(q)}`);
     });
     (cm.rec || []).forEach(x => { const q = (x.m || 0) / 4; if (q > 0 && !arr(x.paid)[i]) items.push(`${x.n}: ${money(q)}`); });
@@ -767,14 +767,14 @@ function render(local) {
       <button onclick="copyText(DUENA.c)" class="mt-2 bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">Copiar CLABE</button></div>`);
 
   const s = M.svc || {}, t = M.tot || {};
-  const svc = [["internet", "Internet (fijo)", "border-blue-500", 225], ["luz", "Luz (CFE / variable)", "border-yellow-500"], ["agua", "Agua (CESPM / variable)", "border-cyan-500"], ["gas", "Gas (a demanda)", "border-orange-500"]];
+  const svc = [["internet", "Internet (fijo)", "border-blue-500", 900], ["luz", "Luz (CFE / variable)", "border-yellow-500"], ["agua", "Agua (CESPM / variable)", "border-cyan-500"], ["gas", "Gas (a demanda)", "border-orange-500"]];
   const ci = H.indexOf("Carlos"), cc = (DB.cuentas || {})[ci] || {};
   const carlosInfo = (cc.bank || cc.num)
     ? `<div class="relative mt-3 bg-white/20 rounded-lg p-2.5 pr-20 text-sm"><div class="absolute top-2 right-2">${getBankLogo(cc.bank)}</div><p>🏦 ${esc(cc.bank || "Banco sin capturar")}</p><p class="font-mono font-bold break-all mt-0.5">${esc(cc.num || "Número sin capturar")}</p>${cc.num ? `<button onclick="copyNum(${ci})" class="mt-2 bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg">Copiar número</button>` : ""}</div>`
     : `<p class="text-xs text-blue-100 mt-2">Carlos todavía no captura su cuenta.</p><button onclick="cuentasOpen = true; switchTab('compras'); render(true)" class="mt-2 bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg">Capturarla en Compras</button>`;
   const debe = H.map((h, i) => {
     let t = 0;
-    [["internet", 225], ["luz"], ["agua"], ["gas"]].forEach(([k, fx]) => { const q = fx || ((M.tot || {})[k] || 0) / 4; if (q && !arr((M.svc || {})[k])[i]) t += q; });
+    [["internet", 900], ["luz"], ["agua"], ["gas"]].forEach(([k, fx]) => { const q = (fx || ((M.tot || {})[k] || 0)) / 4; if (q && !arr((M.svc || {})[k])[i]) t += q; });
     (M.rec || []).forEach(x => { if (!arr(x.paid)[i]) t += x.m / 4; });
     return t;
   });
@@ -790,7 +790,7 @@ function render(local) {
   $("servicios").innerHTML = mNav()
     + `<div class="bg-blue-600 text-white p-4 rounded-xl shadow"><h2 class="text-lg font-bold">Cuentas centralizadas</h2><p class="text-sm text-blue-100 mt-1">Todos los servicios se depositan a la cuenta de <strong class="underline">Carlos</strong>.</p>${carlosInfo}</div>`
     + svc.map(([k, n, c, fx]) => {
-      const q = fx || (t[k] || 0) / 4, p = arr(s[k]);
+      const q = (fx || (t[k] || 0)) / 4, p = arr(s[k]);
       const due = (M.due || {})[k] || "";
       const dueRow = `<div class="flex items-center gap-2 mt-2"><span class="text-xs font-bold text-gray-500 uppercase">Fecha de pago</span><input type="date" value="${due}" onchange="setDue('${k}',this.value)" class="border border-gray-300 rounded p-1 text-sm"></div>`;
       const owe = H.filter((h, i) => !p[i]);
@@ -804,7 +804,7 @@ function render(local) {
       const btnAviso = `<button onclick="notificarServicioManual('${k}', ${fx || 0})" class="w-full mt-2.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold py-1.5 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors">📢 Avisar al grupo de WhatsApp</button>`;
 
       return card(`<h3 class="font-bold text-gray-800">${n}</h3>`
-        + (fx ? `<span class="inline-block mt-1 bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded">$${fx} c/u</span>`
+        + (fx ? `<span class="inline-block mt-1 bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded">Total $${fx} · $${q.toFixed(2)} c/u</span>`
           : `<div class="flex items-center gap-2 mt-1"><input type="number" inputmode="decimal" value="${t[k] || ""}" oninput="liveQ('${k}',this.value)" onchange="setTot('${k}',this.value)" class="w-1/2 border border-gray-300 rounded p-1 text-sm" placeholder="Monto del recibo"><span class="text-xs font-bold text-gray-500">Cuota: $<b class="qn-${k}">${q.toFixed(2)}</b> c/u</span></div>`)
         + dueRow + btnAviso + timing + deb + `<div class="space-y-2 mt-3">${H.map((h, i) => cb(p[i], `togSvc('${k}',${i})`, h, chip(concepto(k.toUpperCase(), i)) + `<span class="qd-${k} text-sm font-bold text-gray-600">$${q.toFixed(2)}</span>`)).join("")}</div>`, `border-l-4 ${c}`);
     }).join("") + totCard + recCard;
