@@ -1,5 +1,5 @@
 // Cambia el número de versión cada vez que publiques cambios para que la app avise "Hay una actualización lista".
-const CACHE_NAME = "controlcasa-v10";
+const CACHE_NAME = "controlcasa-v11";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
