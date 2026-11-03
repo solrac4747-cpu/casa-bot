@@ -145,10 +145,7 @@ async function notificarGrupoCasa(textoMensaje) {
   const tagsTexto = [];
 
   WHATSAPP_CONFIG.otros10Digitos.forEach(num => {
-    // Escribe el @521 en el cuerpo del mensaje para que WhatsApp pinte el enlace azul
     tagsTexto.push(`@521${num}`);
-
-    // Identificadores para que Evolution API vincule el perfil de WhatsApp
     mentionedJids.push(`521${num}@s.whatsapp.net`);
     mentionedJids.push(`52${num}@s.whatsapp.net`);
     mentionedJids.push(`521${num}`);
@@ -167,6 +164,9 @@ async function notificarGrupoCasa(textoMensaje) {
       body: JSON.stringify({
         number: WHATSAPP_CONFIG.groupId,
         text: textoFinal,
+        textMessage: {
+          text: textoFinal
+        },
         mentioned: mentionedJids
       })
     });
@@ -508,12 +508,68 @@ function togRec(id, i) {
 }
 
 function delRec(id) { arm("rec" + id, () => mut(M_(), d => { d.rec = (d.rec || []).filter(x => x.id !== id); })); }
+
+/* Modificación: Guardan sin notificar automáticamente al escribir */
 function setDue(k, v) { mut(M_(), d => { d.due = d.due || {}; d.due[k] = v; }); }
 function setTot(k, v) { mut(M_(), d => { d.tot = d.tot || {}; d.tot[k] = parseFloat(v) || 0; }); }
 function liveQ(k, v) {
   const q = (parseFloat(v) || 0) / 4;
   document.querySelectorAll(".qn-" + k).forEach(e => e.textContent = q.toFixed(2));
   document.querySelectorAll(".qd-" + k).forEach(e => e.textContent = "$" + q.toFixed(2));
+}
+
+/* Modificación: Botones manuales para avisar al grupo sobre servicios y recibos */
+const NOMBRES_SERVICIOS = {
+  internet: "Internet",
+  luz: "Luz (CFE)",
+  agua: "Agua (CESPM)",
+  gas: "Gas"
+};
+
+function notificarServicioManual(k, fx) {
+  const M = DB[M_()] || {};
+  const total = fx || (M.tot && M.tot[k]) || 0;
+  const fecha = (M.due && M.due[k]) || "";
+  const nombre = NOMBRES_SERVICIOS[k] || k.toUpperCase();
+
+  if (total <= 0) {
+    toast(`Falta capturar el monto de ${nombre}`);
+    return;
+  }
+  if (!fecha) {
+    toast(`Falta capturar la fecha límite de ${nombre}`);
+    return;
+  }
+
+  const cuota = (total / 4).toFixed(2);
+  const ci = H.indexOf("Carlos");
+  const cc = (DB.cuentas || {})[ci] || {};
+  const datosCuenta = cc.num ? `\n🏦 Depositar a Carlos: ${cc.bank || "Banco"} · CLABE ${cc.num}` : "";
+
+  const mensaje = `🧾 *Aviso de Servicio: ${nombre}*\n• Monto total: *$${Number(total).toFixed(2)}*\n• Cuota por persona: *$${cuota}*\n• Fecha límite de pago: *${fecha}*${datosCuenta}`;
+  
+  notificarGrupoCasa(mensaje);
+  toast(`Aviso de ${nombre} enviado al grupo`);
+}
+
+function notificarReciboManual(id) {
+  const M = DB[M_()] || {};
+  const item = (M.rec || []).find(x => x.id === id);
+  if (!item) return;
+
+  const cuota = (item.m / 4).toFixed(2);
+  const encIdx = item.enc != null ? item.enc : H.indexOf("Carlos");
+  const encargadoNombre = H[encIdx];
+  const cuentaEnc = (DB.cuentas || {})[encIdx] || {};
+  
+  const datosCuenta = cuentaEnc.num 
+    ? `\n🏦 Depositar a ${encargadoNombre}: ${cuentaEnc.bank || "Banco"} · CLABE ${cuentaEnc.num}` 
+    : `\n🏦 Depositar a ${encargadoNombre}`;
+
+  const mensaje = `🧾 *Aviso de Recibo: ${item.n}*\n• Monto total: *$${Number(item.m).toFixed(2)}*\n• Cuota por persona: *$${cuota}*\n• Fecha límite de pago: *${item.due || "Sin fecha"}*${datosCuenta}`;
+
+  notificarGrupoCasa(mensaje);
+  toast(`Aviso de ${item.n} enviado al grupo`);
 }
 
 function addShop() {
@@ -723,10 +779,14 @@ function render(local) {
     return t;
   });
   const totCard = card(`<h3 class="font-bold text-gray-800 mb-2">Resumen por persona</h3><div class="grid grid-cols-2 gap-2">${H.map((h, i) => `<div class="rounded-lg p-2 text-center border ${debe[i] > 0 ? "bg-red-50 border-red-300" : "bg-green-50 border-green-300"}"><p class="text-xs font-semibold text-gray-700">${h}</p><p class="text-lg font-black ${debe[i] > 0 ? "text-red-600" : "text-green-600"}">$${debe[i].toFixed(2)}${debe[i] > 0 ? "" : " ✓"}</p></div>`).join("")}</div>`);
+  
   const recCard = card(`<h3 class="font-bold text-gray-800">Recibos variables</h3><div class="space-y-2 mt-2"><input type="text" value="${esc(recF.n)}" onchange="recF.n=this.value" placeholder="Nombre (ej. Luz CFE, Gas)" class="w-full border border-gray-300 rounded p-2 text-sm"><div class="grid grid-cols-2 gap-2"><input type="number" inputmode="decimal" value="${recF.m}" onchange="recF.m=this.value" placeholder="Monto total" class="border border-gray-300 rounded p-2 text-sm"><input type="date" value="${recF.due}" onchange="recF.due=this.value" class="border border-gray-300 rounded p-2 text-sm"></div>${sel(recF.enc, "recF.enc=this.value")}<p class="text-xs text-gray-500">Arriba: encargado que recibe los depósitos.</p><button onclick="addRec()" class="w-full bg-purple-600 text-white font-medium py-2 rounded-lg text-sm">Agregar recibo</button></div>` + (M.rec || []).map(x => {
     const pd = arr(x.paid), owe = H.filter((h, i) => !pd[i]), ea = (DB.cuentas || {})[x.enc] || {};
-    return `<div class="mt-3 border-t pt-3"><div class="flex justify-between items-start"><b class="text-sm text-gray-800">${esc(x.n)}</b><span class="text-sm font-black text-purple-700">$${(x.m / 4).toFixed(2)} c/u</span></div><p class="text-xs text-gray-500">Total $${x.m.toFixed(2)} · Límite ${x.due} · Recibe ${H[x.enc]}${ea.num ? ` · CLABE <span class="font-mono">${esc(ea.num)}</span> <button onclick="copyNum(${x.enc})" class="text-indigo-600 font-bold">Copiar</button>` : ""}</p>${owe.length ? tdesc(daysTo(x.due)) : ""}<p class="mt-1 text-sm font-bold ${owe.length ? "text-red-600" : "text-green-600"}">${owe.length ? "Debe: " + owe.join(", ") : "✅ Todos pagaron"}</p><div class="space-y-2 mt-2">${H.map((h, i) => cb(pd[i], `togRec(${x.id},${i})`, h, chip(concepto(x.n.slice(0, 14), i)))).join("")}</div><button onclick="delRec(${x.id})" class="mt-2 text-xs font-bold ${armed === "rec" + x.id ? "text-white bg-red-600 px-2 py-1 rounded" : "text-gray-500"}">${armed === "rec" + x.id ? "Toca otra vez para borrar" : "Borrar recibo"}</button></div>`;
+    const btnAvisoRecibo = `<button onclick="notificarReciboManual(${x.id})" class="w-full mt-2.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-700 font-bold py-1.5 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors">📢 Avisar al grupo de WhatsApp</button>`;
+
+    return `<div class="mt-3 border-t pt-3"><div class="flex justify-between items-start"><b class="text-sm text-gray-800">${esc(x.n)}</b><span class="text-sm font-black text-purple-700">$${(x.m / 4).toFixed(2)} c/u</span></div><p class="text-xs text-gray-500">Total $${x.m.toFixed(2)} · Límite ${x.due} · Recibe ${H[x.enc]}${ea.num ? ` · CLABE <span class="font-mono">${esc(ea.num)}</span> <button onclick="copyNum(${x.enc})" class="text-indigo-600 font-bold">Copiar</button>` : ""}</p>${btnAvisoRecibo}${owe.length ? tdesc(daysTo(x.due)) : ""}<p class="mt-1 text-sm font-bold ${owe.length ? "text-red-600" : "text-green-600"}">${owe.length ? "Debe: " + owe.join(", ") : "✅ Todos pagaron"}</p><div class="space-y-2 mt-2">${H.map((h, i) => cb(pd[i], `togRec(${x.id},${i})`, h, chip(concepto(x.n.slice(0, 14), i)))).join("")}</div><button onclick="delRec(${x.id})" class="mt-2 text-xs font-bold ${armed === "rec" + x.id ? "text-white bg-red-600 px-2 py-1 rounded" : "text-gray-500"}">${armed === "rec" + x.id ? "Toca otra vez para borrar" : "Borrar recibo"}</button></div>`;
   }).join(""), "border-l-4 border-purple-500");
+
   $("servicios").innerHTML = mNav()
     + `<div class="bg-blue-600 text-white p-4 rounded-xl shadow"><h2 class="text-lg font-bold">Cuentas centralizadas</h2><p class="text-sm text-blue-100 mt-1">Todos los servicios se depositan a la cuenta de <strong class="underline">Carlos</strong>.</p>${carlosInfo}</div>`
     + svc.map(([k, n, c, fx]) => {
@@ -740,10 +800,13 @@ function render(local) {
         : dd === 0 ? `<p class="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-300 text-sm font-bold text-amber-800">⏰ Vence hoy</p>`
         : `<p class="mt-2 text-sm font-semibold ${dd <= 3 ? "text-amber-700" : "text-gray-600"}">${dd <= 3 ? "⏰ " : ""}Faltan ${plural(dd)} para pagar</p>`) : "";
       const deb = (fx || (t[k] || 0) > 0) ? (owe.length ? `<p class="mt-2 text-sm font-bold text-red-600">Debe: ${owe.map(h => `${h} (<span class="qd-${k}">$${q.toFixed(2)}</span>)`).join(", ")}</p>` : `<p class="mt-2 text-sm font-bold text-green-600">✅ Todos pagaron</p>`) : "";
+      
+      const btnAviso = `<button onclick="notificarServicioManual('${k}', ${fx || 0})" class="w-full mt-2.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold py-1.5 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors">📢 Avisar al grupo de WhatsApp</button>`;
+
       return card(`<h3 class="font-bold text-gray-800">${n}</h3>`
         + (fx ? `<span class="inline-block mt-1 bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded">$${fx} c/u</span>`
           : `<div class="flex items-center gap-2 mt-1"><input type="number" inputmode="decimal" value="${t[k] || ""}" oninput="liveQ('${k}',this.value)" onchange="setTot('${k}',this.value)" class="w-1/2 border border-gray-300 rounded p-1 text-sm" placeholder="Monto del recibo"><span class="text-xs font-bold text-gray-500">Cuota: $<b class="qn-${k}">${q.toFixed(2)}</b> c/u</span></div>`)
-        + dueRow + timing + deb + `<div class="space-y-2 mt-3">${H.map((h, i) => cb(p[i], `togSvc('${k}',${i})`, h, chip(concepto(k.toUpperCase(), i)) + `<span class="qd-${k} text-sm font-bold text-gray-600">$${q.toFixed(2)}</span>`)).join("")}</div>`, `border-l-4 ${c}`);
+        + dueRow + btnAviso + timing + deb + `<div class="space-y-2 mt-3">${H.map((h, i) => cb(p[i], `togSvc('${k}',${i})`, h, chip(concepto(k.toUpperCase(), i)) + `<span class="qd-${k} text-sm font-bold text-gray-600">$${q.toFixed(2)}</span>`)).join("")}</div>`, `border-l-4 ${c}`);
     }).join("") + totCard + recCard;
 
   $("nav-compras").innerHTML = mNav();
