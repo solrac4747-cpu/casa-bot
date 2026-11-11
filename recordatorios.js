@@ -229,7 +229,7 @@ function armar(texto, TEL) {
   return { texto: t, nums: [...new Set(jids)] };
 }
 
-/* ---------- Verificación automática del Boiler ---------- */
+/* ---------- Verificación automática del Boiler (Optimizada contra duplicados) ---------- */
 async function verificarBoilerGitHub(sb, enviar, TEL) {
   try {
     const res = await sb("estado?select=id,data&id=eq.global");
@@ -241,17 +241,20 @@ async function verificarBoilerGitHub(sb, enviar, TEL) {
       const minutosTranscurridos = (Date.now() - g.boilerTimestamp) / (1000 * 60);
 
       if (minutosTranscurridos >= 30) {
+        // 1. Marcamos como true PRIMERO localmente
         g.alertaBoilerEnviada = true;
         
+        // 2. Guardamos en Supabase ANTES de mandar el mensaje para bloquear ráfagas de cronjob
         await sb("estado", {
           method: "POST",
           headers: { Prefer: "resolution=merge-duplicates" },
           body: JSON.stringify([{ id: "global", data: g }])
         });
 
+        // 3. Enviamos la notificación al grupo
         const mensajeObj = armar("⚠️ *ALERTA DE BOILER*\nEl boiler lleva más de 30 minutos encendido y sigue prendido. ¿Alguien lo olvidó?", TEL);
         await enviar(mensajeObj);
-        console.log("Alerta de boiler enviada automáticamente.");
+        console.log("Alerta de boiler enviada y registrada correctamente.");
       }
     }
   } catch (err) {
