@@ -1,3 +1,10 @@
+Veo que pegaste la versión anterior de tu `index.html`, donde todavía aparece el arreglo `otros10Digitos` con el número viejo de Bryan.
+
+Para que los botones manuales de la página web funcionen correctamente con el número de Estados Unidos (+1 760 996 2559) y sigan etiquetando bien a Ricardo y Erick en México, aquí tienes el archivo `index.html` **con la corrección ya aplicada**.
+
+Copia este bloque y reemplaza todo tu archivo actual:
+
+```html
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -130,11 +137,11 @@ const WHATSAPP_CONFIG = {
   url: 'https://evolution-api-4upu.onrender.com/message/sendText/casa-bot',
   apiKey: 'MiClaveSeguraCasa2026',
   groupId: '120363398553193180@g.us',
-  // Números a 10 dígitos de los otros integrantes (excluye a Carlos)
-  otros10Digitos: [
-    "6681318521", // Bryan/Uriel
-    "6681035576", // Ricardo
-    "6862259187"  // Erick
+  // Números con código de país de los otros integrantes (excluye a Carlos)
+  otrosNumeros: [
+    "17609962559",   // Bryan/Uriel (USA)
+    "5216681035576", // Ricardo (MX)
+    "5216862259187"  // Erick (MX)
   ]
 };
 
@@ -144,12 +151,17 @@ async function notificarGrupoCasa(textoMensaje) {
   const mentionedJids = [];
   const tagsTexto = [];
 
-  WHATSAPP_CONFIG.otros10Digitos.forEach(num => {
-    tagsTexto.push(`@521${num}`);
-    mentionedJids.push(`521${num}@s.whatsapp.net`);
-    mentionedJids.push(`52${num}@s.whatsapp.net`);
-    mentionedJids.push(`521${num}`);
-    mentionedJids.push(`52${num}`);
+  WHATSAPP_CONFIG.otrosNumeros.forEach(num => {
+    // Detección automática de número de Estados Unidos (+1)
+    if (num.startsWith("1") && num.length === 11) {
+      tagsTexto.push(`@${num}`);
+      mentionedJids.push(`${num}@s.whatsapp.net`, num);
+    } else {
+      // Detección genérica (México)
+      const diez = num.slice(-10);
+      tagsTexto.push(`@521${diez}`);
+      mentionedJids.push(`521${diez}@s.whatsapp.net`, `52${diez}@s.whatsapp.net`, `521${diez}`, `52${diez}`);
+    }
   });
 
   const textoFinal = `${textoMensaje}\n\n📢 ${tagsTexto.join(" ")}`;
@@ -959,3 +971,5 @@ window.addEventListener("DOMContentLoaded", () => {
 </script>
 </body>
 </html>
+
+```
