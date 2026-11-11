@@ -1,3 +1,13 @@
+Veo que me compartiste tu archivo anterior donde todavía aparece `HORA_NOCHE = 20` y el internet en `225`.
+
+Aquí tienes el código completo con las **dos correcciones ya aplicadas**:
+
+1. **Horario a las 4:00 PM:** Cambié `HORA_NOCHE` a `16`.
+2. **Cálculo del Internet:** Cambié el fijo a `900` y ajusté la fórmula matemática (`const q = (fx || t) / 4;`) para que divida correctamente esos 900 entre 4 y notifique la cuota individual de $225.
+
+Reemplaza todo el contenido en GitHub con este:
+
+```javascript
 // Bot de recordatorios de la casa (WhatsApp, vía Evolution API v2).
 // Lee los datos de la app en Supabase y manda los avisos al grupo.
 // Requiere Node 18 o superior (usa fetch). Sin dependencias externas.
@@ -33,8 +43,8 @@ function ordenDoc(id, d) {
   return x;
 }
 
-const PAGO_IMELDA_DOW = 2; // Martes
-const HORA_NOCHE = 20;      // 8:00 PM Mexicali (basura / Imelda)
+const PAGO_IMELDA_DOW = 2;  // Martes
+const HORA_NOCHE = 16;      // 4:00 PM Mexicali (basura / Imelda)
 const HORA_RENTA = 9;       // 9:00 AM Mexicali
 const HORA_COMPRAS = 14;    // 2:00 PM Mexicali (liquidación compras)
 const HORA_RECIBOS = 9;     // 9:00 AM Mexicali (servicios y recibos)
@@ -144,10 +154,14 @@ function planear(DBin, now) {
     Object.keys(DB).filter(k => k.startsWith("mes-")).forEach(id => {
       const M = DB[id], items = [];
       (M.rec || []).forEach(x => items.push({ id: "r" + x.id, n: x.n, due: x.due, enc: x.enc, q: x.m / 4, paid: arr(x.paid) }));
-      [["internet", "Internet", 225], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].forEach(([k, n, fx]) => {
+      
+      // Actualizado para un total fijo de 900 en Internet
+      [["internet", "Internet", 900], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].forEach(([k, n, fx]) => {
         const t = (M.tot || {})[k] || 0;
-        if ((M.due || {})[k] && (fx || t > 0)) items.push({ id: k, n, due: M.due[k], enc: carlos, q: fx || t / 4, paid: arr((M.svc || {})[k]) });
+        const q = (fx || t) / 4;
+        if ((M.due || {})[k] && q > 0) items.push({ id: k, n, due: M.due[k], enc: carlos, q: q, paid: arr((M.svc || {})[k]) });
       });
+      
       items.forEach(it => {
         const dl = diffDays(it.due, now.date), pend = [0, 1, 2, 3].filter(i => !it.paid[i]);
         if ((dl !== 1 && dl !== 2) || !pend.length) return;
@@ -326,3 +340,5 @@ async function run() {
 
 module.exports = { planear, armar, ahora, calcularLiquidacion, ordenDoc };
 if (require.main === module) run().catch(e => { console.error(e); process.exit(1); });
+
+```
