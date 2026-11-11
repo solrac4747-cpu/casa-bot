@@ -229,6 +229,36 @@ function armar(texto, TEL) {
   return { texto: t, nums: [...new Set(jids)] };
 }
 
+/* ---------- Verificación automática del Boiler ---------- */
+async function verificarBoilerGitHub(sb, enviar, TEL) {
+  try {
+    const res = await sb("estado?select=id,data&id=eq.global");
+    if (!res.ok) return;
+    const rows = await res.json();
+    const g = rows[0]?.data || {};
+
+    if (g.boilerOn && g.boilerTimestamp && !g.alertaBoilerEnviada) {
+      const minutosTranscurridos = (Date.now() - g.boilerTimestamp) / (1000 * 60);
+
+      if (minutosTranscurridos >= 30) {
+        g.alertaBoilerEnviada = true;
+        
+        await sb("estado", {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates" },
+          body: JSON.stringify([{ id: "global", data: g }])
+        });
+
+        const mensajeObj = armar("⚠️ *ALERTA DE BOILER*\nEl boiler lleva más de 30 minutos encendido y sigue prendido. ¿Alguien lo olvidó?", TEL);
+        await enviar(mensajeObj);
+        console.log("Alerta de boiler enviada automáticamente.");
+      }
+    }
+  } catch (err) {
+    console.error("Error al verificar el boiler:", err);
+  }
+}
+
 /* ---------- Ejecución principal ---------- */
 async function run() {
   const { SUPABASE_URL: U, SUPABASE_KEY: K, GRUPO_ID, TELEFONOS, PRUEBA, DRY_RUN } = process.env;
@@ -275,6 +305,9 @@ async function run() {
     console.log("Prueba enviada exitosamente");
     return;
   }
+
+  // 1. Ejecutar revisión del boiler en cada corrida de GitHub Actions
+  await verificarBoilerGitHub(sb, enviar, TEL);
 
   const res = await sb("estado?select=id,data");
   if (!res.ok) throw new Error("Supabase: " + res.status + " " + await res.text());
