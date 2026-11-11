@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -126,12 +125,12 @@
 </nav>
 
 <script>
-/* ---------- Notificaciones WhatsApp ---------- */
+/* ---------- Notificaciones WhatsApp (Excluyendo a Carlos) ---------- */
 const WHATSAPP_CONFIG = {
   url: 'https://evolution-api-4upu.onrender.com/message/sendText/casa-bot',
   apiKey: 'MiClaveSeguraCasa2026',
   groupId: '120363398553193180@g.us',
-  // Números con código de país de los otros integrantes (excluye a Carlos)
+  // Números con código de país de los otros integrantes (excluye estrictamente a Carlos)
   otrosNumeros: [
     "17609962559",   // Bryan/Uriel (USA)
     "5216681035576", // Ricardo (MX)
@@ -406,6 +405,38 @@ function water(n) {
   }
 }
 
+function toggleBoiler() {
+  const wasOn = G().boilerOn;
+  const timeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  const timestamp = Date.now();
+  
+  mut("global", d => {
+    d.boilerOn = !wasOn;
+    d.boilerTime = !wasOn ? timeStr : null;
+    d.boilerTimestamp = !wasOn ? timestamp : null;
+    d.alertaBoilerEnviada = false;
+  });
+
+  if (!wasOn) {
+    notificarGrupoCasa(`🔥 *Boiler encendido*\nSe prendió a las ${timeStr}. Avisaré al grupo si pasan 30 minutos sin apagarse.`);
+    toast("Boiler encendido");
+  } else {
+    notificarGrupoCasa(`💧 *Boiler apagado*`);
+    toast("Boiler apagado");
+  }
+}
+
+function verificarBoilerAutomatico() {
+  const g = G();
+  if (g.boilerOn && g.boilerTimestamp && !g.alertaBoilerEnviada) {
+    const minutosTranscurridos = (Date.now() - g.boilerTimestamp) / (1000 * 60);
+    if (minutosTranscurridos >= 30) {
+      mut("global", d => { d.alertaBoilerEnviada = true; });
+      notificarGrupoCasa(`⚠️ *ALERTA DE BOILER*\nEl boiler lleva más de 30 minutos encendido y sigue prendido. ¿Alguien lo olvidó?`);
+    }
+  }
+}
+
 function setMonthBoss(v) { 
   mut(M_(), d => d.boss = +v);
   notificarGrupoCasa(`💵 *Control Casa*: *${H[+v]}* es el encargado de cobrar la renta de este mes.`);
@@ -515,7 +546,6 @@ function togRec(id, i) {
 
 function delRec(id) { arm("rec" + id, () => mut(M_(), d => { d.rec = (d.rec || []).filter(x => x.id !== id); })); }
 
-/* Modificación: Guardan sin notificar automáticamente al escribir */
 function setDue(k, v) { mut(M_(), d => { d.due = d.due || {}; d.due[k] = v; }); }
 function setTot(k, v) { mut(M_(), d => { d.tot = d.tot || {}; d.tot[k] = parseFloat(v) || 0; }); }
 function liveQ(k, v) {
@@ -524,7 +554,6 @@ function liveQ(k, v) {
   document.querySelectorAll(".qd-" + k).forEach(e => e.textContent = "$" + q.toFixed(2));
 }
 
-/* Modificación: Botones manuales para avisar al grupo sobre servicios y recibos */
 const NOMBRES_SERVICIOS = {
   internet: "Internet",
   luz: "Luz (CFE)",
@@ -602,7 +631,6 @@ function togPaid(id, i) {
   }
 }
 
-/* ---------- Liquidación estilo Splitwise ---------- */
 function calcularLiquidacionMes(compras) {
   const cent = n => Math.round((+n || 0) * 100);
   const saldo = Object.fromEntries(H.map(h => [h, 0]));
@@ -640,7 +668,6 @@ function renderLiquidacion(M) {
     + (filas ? `<div class="space-y-2">${filas}</div><p class="text-xs font-bold text-gray-500 uppercase mt-3 mb-1">Saldo neto (+ le deben · − debe)</p><div class="flex flex-wrap gap-x-3 gap-y-1">${netos}</div>` : `<p class="text-sm font-bold text-green-600">✅ Todos están a mano este mes</p>`));
 }
 
-/* ---------- Pantallas ---------- */
 const MES3 = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
 const limpio = s => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
 const nomCorto = i => limpio(H[i].split("/")[0]);
@@ -696,6 +723,9 @@ function render(local) {
   SIM = null;
   const a = document.activeElement;
   if (!local && a && a.tagName === "INPUT" && ["number", "text"].includes(a.type)) return;
+  
+  verificarBoilerAutomatico();
+
   const W = DB["sem-" + viewWeek] || {}, M = DB["mes-" + viewMonth] || {}, g = G();
 
   const p = addDays(viewWeek, -7), tracked = p >= g.aW;
@@ -710,6 +740,24 @@ function render(local) {
   const thuRow = dayRow("Basura sacada · jueves", to, "basuraJue",
     (pL && pJ ? amber(`Se recorrió: ${H[to]} no sacó ni el lunes ni el jueves de la semana pasada.`) : "")
     + (missed(viewWeek, "J") ? red(missed(viewWeek, "L") ? `Tampoco el jueves: ${H[to]} debe compensar el jueves de la siguiente semana (y ${H[mo]} el lunes).` : `Ya pasó el jueves sin marcarse: ${H[to]} debe compensar el lunes de la siguiente semana.`) : ""));
+  
+  const bOn = g.boilerOn;
+  const bTime = g.boilerTime || "";
+  const boilerCard = card(`
+    <h2 class="text-lg font-bold text-gray-800 mb-2">Boiler / Calentador</h2>
+    <div class="p-3 rounded-lg border flex items-center justify-between mb-3 ${bOn ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}">
+      <div>
+        <p class="text-xs font-bold uppercase ${bOn ? 'text-orange-600' : 'text-gray-500'}">Estado Actual</p>
+        <p class="text-lg font-black ${bOn ? 'text-orange-700' : 'text-gray-700'}">${bOn ? '🔥 PRENDIDO' : '💧 APAGADO'}</p>
+        ${bOn ? `<p class="text-xs text-orange-600 mt-0.5">Desde las <b>${bTime}</b></p>` : ''}
+      </div>
+      <div class="text-3xl">${bOn ? '♨️' : '🧊'}</div>
+    </div>
+    <button onclick="toggleBoiler()" class="w-full font-medium py-2 rounded-lg text-sm transition-colors shadow-sm ${bOn ? 'bg-gray-200 text-gray-800 hover:bg-gray-300' : 'bg-orange-500 hover:bg-orange-600 text-white'}">
+      ${bOn ? 'Apagar Boiler' : '🔥 Prender Boiler'}
+    </button>
+  `);
+
   const gr = Object.assign({ disponibles: CAP_G, capacidadMaxima: CAP_G, ultimaRecarga: "", alertaEnviada: false }, DB.garrafones || {}, { capacidadMaxima: CAP_G });
   gr.disponibles = Math.min(gr.disponibles, CAP_G);
   const bajo = gr.disponibles <= 1;
@@ -719,17 +767,14 @@ function render(local) {
   const ausCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-1">Fuera de casa (solo basura)</h2><div class="space-y-2">${sel(ausF.p, "ausF.p=this.value")}<div class="grid grid-cols-2 gap-2"><input type="date" value="${ausF.d1}" onchange="ausF.d1=this.value" class="border border-gray-300 rounded-lg p-2 text-sm"><input type="date" value="${ausF.d2}" onchange="ausF.d2=this.value" class="border border-gray-300 rounded-lg p-2 text-sm"></div><button onclick="addAus()" class="w-full bg-amber-600 text-white font-medium py-2 rounded-lg text-sm">Registrar ausencia</button></div>` + (rg.length ? `<div class="mt-3 space-y-1">${rg.map(x => `<div class="flex justify-between items-center text-sm bg-gray-50 rounded p-2"><span><b>${H[x.p]}</b> · ${x.d1} → ${x.d2}</span><button onclick="delAus(${x.id})" class="text-xs font-bold ${armed === "aus" + x.id ? "text-white bg-red-600 px-2 py-1 rounded" : "text-red-600"}">${armed === "aus" + x.id ? "Confirmar" : "Quitar"}</button></div>`).join("")}</div>` : ""));
   const dB = deudaBasura();
   const deudaCard = dB.length ? card(`<h2 class="text-lg font-bold text-red-700 mb-1">Turnos de basura por reponer</h2>${dB.map(x => `<p class="text-sm text-red-600 font-semibold">${H[x.deudor]} le debe un turno a ${H[x.acreedor]} (cubrió el ${x.date})</p>`).join("")}`) : "";
+  
   $("turnos").innerHTML = wNav()
     + card(`<div class="flex justify-between items-center mb-2"><h2 class="text-lg font-bold text-gray-800">Turno semanal</h2><span class="text-sm font-black text-indigo-600">${new Date().toLocaleDateString("es-MX", { weekday: "long" }).toUpperCase()} ${new Date().getDate()}</span></div>
       <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-lg"><span class="text-xs font-semibold text-indigo-600 uppercase">Responsable de la semana</span>
       ${bossSel(weekBoss(viewWeek), "setWeekBoss", "text-xl font-black text-indigo-900 mt-0.5")}
       <p class="text-xs text-gray-500 mt-1">Le paga a Imelda y saca la basura lunes y jueves. Si pasa el día y no se marca, compensa el lunes de la siguiente semana. Si fallan lunes y jueves, se recorren los dos días a la otra semana. Puedes cambiar al responsable si hace falta.</p></div>
       <div class="mt-3 space-y-2">${monRow}${thuRow}${cb(W.limpieza, "toggleTask('limpieza')", "Pago a Imelda")}</div>`)
-    + card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Fila de garrafones</h2>
-      <div class="p-3 bg-amber-50 border border-amber-100 rounded-lg flex justify-between items-center gap-2">
-      <div><span class="text-xs font-semibold text-amber-700 uppercase">Siguiente por ir</span><p class="text-lg font-bold text-amber-900">${H[mod4(g.water || 0)]}</p></div>
-      <div class="flex flex-col gap-1.5"><button onclick="compreGarrafones()" class="bg-amber-600 text-white px-3 py-1.5 text-xs font-bold rounded-lg">¡Ya compré los garrafones!</button>
-      <button onclick="water(-1)" class="bg-gray-200 text-gray-700 px-3 py-1.5 text-xs font-bold rounded-lg">← Regresar turno</button></div></div>`)
+    + boilerCard
     + garrCard + swapCard + ausCard + deudaCard;
 
   const r = arr(M.rent);
@@ -965,5 +1010,3 @@ window.addEventListener("DOMContentLoaded", () => {
 </script>
 </body>
 </html>
-
-```
