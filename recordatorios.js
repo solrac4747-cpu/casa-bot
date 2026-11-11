@@ -240,7 +240,7 @@ async function verificarBoilerGitHub(sb, enviar, TEL) {
     if (g.boilerOn && g.boilerTimestamp && !g.alertaBoilerEnviada) {
       const minutosTranscurridos = (Date.now() - g.boilerTimestamp) / (1000 * 60);
 
-      if (minutosTranscurridos >= 30) {
+      if (minutosTranscurridos >= 1) {
         // 1. Marcamos como true PRIMERO localmente
         g.alertaBoilerEnviada = true;
         
