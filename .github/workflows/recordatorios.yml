@@ -1,7 +1,7 @@
 name: Recordatorios de la casa
 on:
-  schedule:
-    - cron: "10 * * * *"        # cada hora; el script decide si toca enviar
+  repository_dispatch:
+    types: [lanzar-bot]
   workflow_dispatch:
     inputs:
       prueba:
