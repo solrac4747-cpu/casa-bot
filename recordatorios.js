@@ -1,13 +1,3 @@
-Veo que me compartiste tu archivo anterior donde todavía aparece `HORA_NOCHE = 20` y el internet en `225`.
-
-Aquí tienes el código completo con las **dos correcciones ya aplicadas**:
-
-1. **Horario a las 4:00 PM:** Cambié `HORA_NOCHE` a `16`.
-2. **Cálculo del Internet:** Cambié el fijo a `900` y ajusté la fórmula matemática (`const q = (fx || t) / 4;`) para que divida correctamente esos 900 entre 4 y notifique la cuota individual de $225.
-
-Reemplaza todo el contenido en GitHub con este:
-
-```javascript
 // Bot de recordatorios de la casa (WhatsApp, vía Evolution API v2).
 // Lee los datos de la app en Supabase y manda los avisos al grupo.
 // Requiere Node 18 o superior (usa fetch). Sin dependencias externas.
@@ -155,7 +145,6 @@ function planear(DBin, now) {
       const M = DB[id], items = [];
       (M.rec || []).forEach(x => items.push({ id: "r" + x.id, n: x.n, due: x.due, enc: x.enc, q: x.m / 4, paid: arr(x.paid) }));
       
-      // Actualizado para un total fijo de 900 en Internet
       [["internet", "Internet", 900], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].forEach(([k, n, fx]) => {
         const t = (M.tot || {})[k] || 0;
         const q = (fx || t) / 4;
@@ -211,7 +200,7 @@ function armar(texto, TEL) {
   const t = texto.replace(/\{\{(\d)\}\}/g, (m, i) => {
     const nombre = H[+i];
 
-    // Excluir a Carlos de las menciones push para evitar error de auto-mención
+    // Excluir a Carlos
     if (nombre === "Carlos") {
       return "Carlos";
     }
@@ -222,14 +211,16 @@ function armar(texto, TEL) {
 
     const representaciones = [];
     lista.forEach(n => {
-      const diez = n.slice(-10);
-      const jid1 = `521${diez}@s.whatsapp.net`;
-      const jid2 = `52${diez}@s.whatsapp.net`;
-      const num1 = `521${diez}`;
-      const num2 = `52${diez}`;
-
-      jids.push(jid1, jid2, num1, num2);
-      representaciones.push(`@521${diez}`);
+      // Detección automática de número de Estados Unidos (+1)
+      if (n.startsWith("1") && n.length === 11) {
+        jids.push(`${n}@s.whatsapp.net`, n);
+        representaciones.push(`@${n}`);
+      } else {
+        // Detección genérica (México)
+        const diez = n.slice(-10);
+        jids.push(`521${diez}@s.whatsapp.net`, `52${diez}@s.whatsapp.net`, `521${diez}`, `52${diez}`);
+        representaciones.push(`@521${diez}`);
+      }
     });
 
     return representaciones.join(" y ");
@@ -253,7 +244,6 @@ async function run() {
     if (DRY_RUN) { console.log("[DRY_RUN]", texto, nums); return; }
     const url = `${EVOLUTION_URL}/message/sendText/${INSTANCE}`;
 
-    // Payload compatible con Evolution API v2
     const payload = {
       number: GRUPO,
       text: texto,
@@ -340,5 +330,3 @@ async function run() {
 
 module.exports = { planear, armar, ahora, calcularLiquidacion, ordenDoc };
 if (require.main === module) run().catch(e => { console.error(e); process.exit(1); });
-
-```
