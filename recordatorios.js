@@ -288,18 +288,35 @@ async function run() {
       payload.mentioned = nums;
     }
 
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": EVOLUTION_APIKEY
-      },
-      body: JSON.stringify(payload)
-    });
+    const maxIntentos = 3;
+    for (let intento = 1; intento <= maxIntentos; intento++) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": EVOLUTION_APIKEY
+          },
+          body: JSON.stringify(payload)
+        });
 
-    if (!r.ok) {
-      const errText = await r.text();
-      throw new Error(`Evolution API: ${r.status} ${errText}`);
+        if (r.ok) {
+          return; // Envío exitoso, salimos del ciclo de reintentos
+        }
+
+        const errText = await r.text();
+        throw new Error(`Evolution API: ${r.status} ${errText}`);
+      } catch (error) {
+        console.warn(`Intento ${intento} de ${maxIntentos} fallido: ${error.message}`);
+        
+        // Si alcanzamos el límite de intentos, propagamos el error
+        if (intento === maxIntentos) {
+          throw error;
+        }
+
+        // Esperamos 8 segundos antes del siguiente reintento (tiempo para que Render despierte)
+        await new Promise(resolve => setTimeout(resolve, 8000));
+      }
     }
   };
 
