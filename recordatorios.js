@@ -200,30 +200,38 @@ function armar(texto, TEL) {
   const t = texto.replace(/\{\{(\d)\}\}/g, (m, i) => {
     const nombre = H[+i];
 
-    // Excluir a Carlos
+    // Excluir a Carlos de la etiqueta push
     if (nombre === "Carlos") {
       return "Carlos";
     }
 
-    const v = TEL[nombre];
-    const lista = (Array.isArray(v) ? v : v ? [v] : []).map(n => String(n).replace(/\D/g, ""));
-    if (!lista.length) return nombre;
-
+    // REGLA: Si el índice es "Bryan/Uriel", buscamos ambos números
+    const nombresExtraer = nombre === "Bryan/Uriel" ? ["Bryan", "Uriel"] : [nombre];
     const representaciones = [];
-    lista.forEach(n => {
-      // Detección automática de número de Estados Unidos (+1)
-      if (n.startsWith("1") && n.length === 11) {
-        jids.push(`${n}@s.whatsapp.net`, n);
-        representaciones.push(`@${n}`);
-      } else {
-        // Detección genérica (México)
-        const diez = n.slice(-10);
-        jids.push(`521${diez}@s.whatsapp.net`, `52${diez}@s.whatsapp.net`, `521${diez}`, `52${diez}`);
-        representaciones.push(`@521${diez}`);
+
+    nombresExtraer.forEach(nom => {
+      // Extraemos el número correspondiente a "Bryan", "Uriel" (o el genérico si aplica)
+      const v = TEL[nom] || TEL[nombre];
+      const lista = (Array.isArray(v) ? v : v ? [v] : []).map(n => String(n).replace(/\D/g, ""));
+      
+      if (lista.length) {
+        lista.forEach(n => {
+          // Detección automática de número de Estados Unidos (+1)
+          if (n.startsWith("1") && n.length === 11) {
+            jids.push(`${n}@s.whatsapp.net`, n);
+            representaciones.push(`@${n}`);
+          } else {
+            // Detección genérica (México)
+            const diez = n.slice(-10);
+            jids.push(`521${diez}@s.whatsapp.net`, `52${diez}@s.whatsapp.net`, `521${diez}`, `52${diez}`);
+            representaciones.push(`@521${diez}`);
+          }
+        });
       }
     });
 
-    return representaciones.join(" y ");
+    // Devuelve los nombres unidos por "y" (Ej: @521xxxx y @521yyyy)
+    return representaciones.length > 0 ? representaciones.join(" y ") : nombre;
   });
 
   return { texto: t, nums: [...new Set(jids)] };
