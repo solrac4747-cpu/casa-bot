@@ -34,7 +34,8 @@ function ordenDoc(id, d) {
 }
 
 const PAGO_IMELDA_DOW = 2;  // Martes
-const HORA_NOCHE = 16;      // 4:00 PM Mexicali (basura / Imelda)
+const HORA_BASURA = 20;     // 8:00 PM Mexicali (un día antes: domingo y miércoles)
+const HORA_IMELDA = 16;     // 4:00 PM Mexicali (un día antes: lunes)
 const HORA_RENTA = 9;       // 9:00 AM Mexicali
 const HORA_COMPRAS = 14;    // 2:00 PM Mexicali (liquidación compras)
 const HORA_RECIBOS = 9;     // 9:00 AM Mexicali (servicios y recibos)
@@ -117,26 +118,34 @@ function planear(DBin, now) {
   const out = [], tk = i => `{{${i}}}`;
   const manana = addDays(now.date, 1), dowM = dowOf(manana), wk = mondayOf(manana);
 
-  if (now.hour >= HORA_NOCHE) {
-    if (dowM === 1 || dowM === 4) {
-      const k = dowM === 1 ? "L" : "J", x = slots().S[wk + k];
-      if (x) {
-        let t = `🗑️ Recordatorio: mañana ${k === "L" ? "lunes" : "jueves"} pasa la basura. Le toca sacarla a ${tk(x.o)}.`;
-        if (x.cubre) t += ` 🧳 Cubre a ${H[x.cubre.titular]}, que está fuera; ${H[x.cubre.titular]} le repone un turno.`;
-        else if (x.repone) t += ` 🔁 Es la reposición del turno que ${H[x.repone.acreedor]} le cubrió.`;
-        else if (x.swap) t += ` (Cambio puntual; le tocaba a ${H[x.base]}.)`;
-        else if (x.base !== weekBoss(wk)) t += " (Compensación por turno no sacado.)";
-        out.push({ key: `${manana}-${k === "L" ? "lun" : "jue"}`, texto: t });
-      }
-    }
-    if (PAGO_IMELDA_DOW !== null && dowM === PAGO_IMELDA_DOW) {
-      out.push({ key: `${manana}-imelda`, texto: `💵 Recordatorio: mañana toca el pago a Imelda. Le toca a ${tk(weekBoss(wk))}.` });
+  // Recordatorio de basura: un día antes a las 8:00 PM (domingo y miércoles)
+  if (now.hour >= HORA_BASURA && (dowM === 1 || dowM === 4)) {
+    const k = dowM === 1 ? "L" : "J", x = slots().S[wk + k];
+    if (x) {
+      let t = `🗑️ Recordatorio: mañana ${k === "L" ? "lunes" : "jueves"} pasa la basura. Le toca sacarla a ${tk(x.o)}.`;
+      if (x.cubre) t += ` 🧳 Cubre a ${H[x.cubre.titular]}, que está fuera; ${H[x.cubre.titular]} le repone un turno.`;
+      else if (x.repone) t += ` 🔁 Es la reposición del turno que ${H[x.repone.acreedor]} le cubrió.`;
+      else if (x.swap) t += ` (Cambio puntual; le tocaba a ${H[x.base]}.)`;
+      else if (x.base !== weekBoss(wk)) t += " (Compensación por turno no sacado.)";
+      out.push({ key: `${manana}-${k === "L" ? "lun" : "jue"}`, texto: t });
     }
   }
 
+  // Recordatorio de pago a Imelda: un día antes a las 4:00 PM (lunes)
+  if (now.hour >= HORA_IMELDA && PAGO_IMELDA_DOW !== null && dowM === PAGO_IMELDA_DOW) {
+    out.push({ key: `${manana}-imelda`, texto: `💵 Recordatorio: mañana toca el pago a Imelda. Le toca a ${tk(weekBoss(wk))}.` });
+  }
+
+  // Recordatorio de renta: día 4 a las 9:00 AM (etiquetando a los pendientes)
   if (now.day === 4 && now.hour >= HORA_RENTA) {
-    const rent = arr((DB["mes-" + now.month] || {}).rent), pend = H.filter((h, i) => !rent[i]);
-    if (pend.length) out.push({ key: `${now.month}-renta`, texto: `📅 Recordatorio de renta: hoy es 4 y la renta se paga antes del día 5. Encargado este mes: ${tk(monthBoss(now.month))}. Pendientes de marcar pago: ${pend.join(", ")}.` });
+    const rent = arr((DB["mes-" + now.month] || {}).rent);
+    const pendIdx = [0, 1, 2, 3].filter(i => !rent[i]);
+    if (pendIdx.length) {
+      out.push({
+        key: `${now.month}-renta`,
+        texto: `📅 Recordatorio de renta: hoy es 4 y la renta se paga antes del día 5. Encargado este mes: ${tk(monthBoss(now.month))}. Pendientes de marcar pago: ${pendIdx.map(tk).join(", ")}.`
+      });
+    }
   }
 
   if (now.hour >= HORA_RECIBOS) {
@@ -144,13 +153,13 @@ function planear(DBin, now) {
     Object.keys(DB).filter(k => k.startsWith("mes-")).forEach(id => {
       const M = DB[id], items = [];
       (M.rec || []).forEach(x => items.push({ id: "r" + x.id, n: x.n, due: x.due, enc: x.enc, q: x.m / 4, paid: arr(x.paid) }));
-      
+
       [["internet", "Internet", 900], ["luz", "Luz"], ["agua", "Agua"], ["gas", "Gas"]].forEach(([k, n, fx]) => {
         const t = (M.tot || {})[k] || 0;
         const q = (fx || t) / 4;
         if ((M.due || {})[k] && q > 0) items.push({ id: k, n, due: M.due[k], enc: carlos, q: q, paid: arr((M.svc || {})[k]) });
       });
-      
+
       items.forEach(it => {
         const dl = diffDays(it.due, now.date), pend = [0, 1, 2, 3].filter(i => !it.paid[i]);
         if ((dl !== 1 && dl !== 2) || !pend.length) return;
@@ -197,40 +206,56 @@ function calcularLiquidacion(compras) {
 /* ---------- Formateo de menciones (@usuario) ---------- */
 function armar(texto, TEL) {
   const jids = [];
-  const t = texto.replace(/\{\{(\d)\}\}/g, (m, i) => {
+
+  const extraerNums = key => {
+    const v = TEL[key];
+    return (Array.isArray(v) ? v : v ? [v] : [])
+      .map(n => String(n).replace(/\D/g, ""))
+      .filter(Boolean);
+  };
+
+  // Expande {{TODOS}} omitiendo a Carlos (mismo teléfono emisor)
+  const textoExpandido = texto.replace(/\{\{TODOS\}\}/g, () =>
+    H.map((n, idx) => (n === "Carlos" ? null : `{{${idx}}}`))
+      .filter(Boolean)
+      .join(", ")
+  );
+
+  const t = textoExpandido.replace(/\{\{(\d)\}\}/g, (m, i) => {
     const nombre = H[+i];
 
-    // Excluir a Carlos de la etiqueta push
+    // Nunca etiquetar a Carlos (solo texto plano cuando le toque turno o pago)
     if (nombre === "Carlos") {
       return "Carlos";
     }
 
-    // REGLA: Si el índice es "Bryan/Uriel", buscamos ambos números
-    const nombresExtraer = nombre === "Bryan/Uriel" ? ["Bryan", "Uriel"] : [nombre];
-    const representaciones = [];
+    // REGLA: Si es Bryan/Uriel, junta ambos números en orden (Bryan y Uriel) sin duplicados
+    const lista = nombre === "Bryan/Uriel"
+      ? [...extraerNums("Bryan"), ...extraerNums("Bryan/Uriel"), ...extraerNums("Uriel")]
+      : extraerNums(nombre);
 
-    nombresExtraer.forEach(nom => {
-      // Extraemos el número correspondiente a "Bryan", "Uriel" (o el genérico si aplica)
-      const v = TEL[nom] || TEL[nombre];
-      const lista = (Array.isArray(v) ? v : v ? [v] : []).map(n => String(n).replace(/\D/g, ""));
-      
-      if (lista.length) {
-        lista.forEach(n => {
-          // Detección automática de número de Estados Unidos (+1)
-          if (n.startsWith("1") && n.length === 11) {
-            jids.push(`${n}@s.whatsapp.net`, n);
-            representaciones.push(`@${n}`);
-          } else {
-            // Detección genérica (México)
-            const diez = n.slice(-10);
-            jids.push(`521${diez}@s.whatsapp.net`, `52${diez}@s.whatsapp.net`, `521${diez}`, `52${diez}`);
-            representaciones.push(`@521${diez}`);
-          }
-        });
+    if (!lista.length) return nombre;
+
+    const representaciones = [];
+    const vistos = new Set();
+
+    lista.forEach(n => {
+      // Detección automática de número de Estados Unidos (+1)
+      if (n.startsWith("1") && n.length === 11) {
+        if (vistos.has(n)) return;
+        vistos.add(n);
+        jids.push(`${n}@s.whatsapp.net`, n);
+        representaciones.push(`@${n}`);
+      } else {
+        // Detección genérica (México)
+        const diez = n.slice(-10);
+        if (vistos.has(diez)) return;
+        vistos.add(diez);
+        jids.push(`521${diez}@s.whatsapp.net`, `52${diez}@s.whatsapp.net`, `521${diez}`, `52${diez}`);
+        representaciones.push(`@521${diez}`);
       }
     });
 
-    // Devuelve los nombres unidos por "y" (Ej: @521xxxx y @521yyyy)
     return representaciones.length > 0 ? representaciones.join(" y ") : nombre;
   });
 
@@ -251,7 +276,7 @@ async function verificarBoilerGitHub(sb, enviar, TEL) {
       if (minutosTranscurridos >= 30) {
         // 1. Marcamos como true PRIMERO localmente
         g.alertaBoilerEnviada = true;
-        
+
         // 2. Guardamos en Supabase ANTES de mandar el mensaje para bloquear ráfagas de cronjob
         await sb("estado", {
           method: "POST",
@@ -259,8 +284,8 @@ async function verificarBoilerGitHub(sb, enviar, TEL) {
           body: JSON.stringify([{ id: "global", data: g }])
         });
 
-        // 3. Enviamos la notificación al grupo
-        const mensajeObj = armar("⚠️ *ALERTA DE BOILER*\nEl boiler lleva más de 30 minutos encendido y sigue prendido. ¿Alguien lo olvidó?", TEL);
+        // 3. Enviamos la notificación al grupo etiquetando a todos excepto Carlos
+        const mensajeObj = armar("⚠️ *ALERTA DE BOILER*\nEl boiler lleva más de 30 minutos encendido y sigue prendido. ¿Alguien lo olvidó?\n\n{{TODOS}}", TEL);
         await enviar(mensajeObj);
         console.log("Alerta de boiler enviada y registrada correctamente.");
       }
@@ -316,7 +341,7 @@ async function run() {
         throw new Error(`Evolution API: ${r.status} ${errText}`);
       } catch (error) {
         console.warn(`Intento ${intento} de ${maxIntentos} fallido: ${error.message}`);
-        
+
         // Si alcanzamos el límite de intentos, propagamos el error
         if (intento === maxIntentos) {
           throw error;
