@@ -663,7 +663,7 @@ function water(n) {
   if (n > 0) {
     const siguiente = H[mod4(G().water || 0)];
     registrarHistorial("Avanzó turno de agua", `Siguiente: ${siguiente}`);
-    notificarGrupoCasa(`💧 *Fila de garrafones*: *${quienSoy()}* avanzó el turno. Siguiente para ir por agua: *${siguiente}*.`);
+    notificarGrupoCasa(`💧 *Fila de garrafones*: *${quienSoy()}* avanzó el turno. Siguiente para llevar garrafones: *${siguiente}*.`);
   }
 }
 
@@ -770,11 +770,12 @@ function garr(a) {
     if (gr.disponibles <= 1) {
       const idxEncargado = mod4(G().water || 0);
       const nombreEncargado = H[idxEncargado];
-      notificarGrupoCasa(`⚠️ *¡ALERTA GARRAFONES!*\n*${quienSoy()}* puso un garrafón. Queda(n) solo *${gr.disponibles}* disponible(s). Le toca comprarlos/pedirlos a *${nombreEncargado}*.`);
+      notificarGrupoCasa(`⚠️ *¡ALERTA GARRAFONES!*\n*${quienSoy()}* puso un garrafón. Queda(n) solo *${gr.disponibles}* disponible(s). Le toca llevar/pedir garrafones a *${nombreEncargado}*.`);
     }
   } else if (a === "recarga") {
-    registrarHistorial("Recargó garrafones", `Stock ${CAP_G}/${CAP_G}`);
-    notificarGrupoCasa(`💧 *Garrafones recargados* por *${quienSoy()}*: Stock completo (${CAP_G}/${CAP_G} disponibles).`);
+    const siguienteLlevar = H[mod4(G().water || 0)];
+    registrarHistorial("Recargó garrafones", `Stock ${CAP_G}/${CAP_G} · Siguiente: ${siguienteLlevar}`);
+    notificarGrupoCasa(`💧 *Garrafones recargados* por *${quienSoy()}*: Stock completo (${CAP_G}/${CAP_G} disponibles). Siguiente en llevar garrafones: *${siguienteLlevar}*.`);
   }
 }
 
@@ -1038,7 +1039,8 @@ function render(local) {
   const gr = Object.assign({ disponibles: CAP_G, capacidadMaxima: CAP_G, ultimaRecarga: "", alertaEnviada: false }, DB.garrafones || {}, { capacidadMaxima: CAP_G });
   gr.disponibles = Math.min(gr.disponibles, CAP_G);
   const bajo = gr.disponibles <= 1;
-  const garrCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Stock de garrafones</h2><div class="p-3 rounded-lg border ${bajo ? "bg-red-50 border-red-300" : "bg-sky-50 border-sky-200"}"><p class="text-lg font-black ${bajo ? "text-red-700" : "text-sky-900"}">${gr.disponibles} de ${gr.capacidadMaxima} disponibles${bajo ? " ⚠️" : ""}</p><div class="flex gap-1 text-2xl my-1">${Array.from({ length: gr.capacidadMaxima }, (_, i) => `<span class="${i < gr.disponibles ? "" : "opacity-25 grayscale"}">💧</span>`).join("")}</div><p class="text-xs text-gray-500">Última recarga: ${esc(gr.ultimaRecarga || "sin registro")}</p></div><div class="space-y-2 mt-3"><button onclick="garr('uso')" class="w-full ${bajo ? "bg-red-600" : "bg-sky-600"} text-white font-medium py-2 rounded-lg text-sm">Puse un garrafón en el dispensador</button><button onclick="garr('recarga')" class="w-full bg-emerald-600 text-white font-medium py-2 rounded-lg text-sm">Rellenar / Llegó el repartidor</button><div class="grid grid-cols-2 gap-2"><button onclick="garr(-1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">− 1 (corregir)</button><button onclick="garr(1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">+ 1 (corregir)</button></div></div>`);
+  const idxAgua = mod4(g.water || 0);
+  const garrCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-2">Stock de garrafones</h2><div class="p-3 rounded-lg border ${bajo ? "bg-red-50 border-red-300" : "bg-sky-50 border-sky-200"}"><p class="text-lg font-black ${bajo ? "text-red-700" : "text-sky-900"}">${gr.disponibles} de ${gr.capacidadMaxima} disponibles${bajo ? " ⚠️" : ""}</p><div class="flex gap-1 text-2xl my-1">${Array.from({ length: gr.capacidadMaxima }, (_, i) => `<span class="${i < gr.disponibles ? "" : "opacity-25 grayscale"}">💧</span>`).join("")}</div><p class="text-xs font-bold text-indigo-700 mt-1">Siguiente en llevar garrafones: ${esc(H[idxAgua])}</p><p class="text-xs text-gray-500 mt-0.5">Última recarga: ${esc(gr.ultimaRecarga || "sin registro")}</p></div><div class="space-y-2 mt-3"><button onclick="garr('uso')" class="w-full ${bajo ? "bg-red-600" : "bg-sky-600"} text-white font-medium py-2 rounded-lg text-sm">Puse un garrafón en el dispensador</button><button onclick="garr('recarga')" class="w-full bg-emerald-600 text-white font-medium py-2 rounded-lg text-sm">Rellenar / Llegó el repartidor</button><button onclick="water(1)" class="w-full bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold py-1.5 rounded-lg text-xs">Avanzar turno de llevar garrafones</button><div class="grid grid-cols-2 gap-2"><button onclick="garr(-1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">− 1 (corregir)</button><button onclick="garr(1)" class="bg-gray-200 text-gray-700 font-bold py-1.5 rounded-lg text-sm">+ 1 (corregir)</button></div></div>`);
   const swapCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-1">Ceder turno de basura</h2><p class="text-xs text-gray-500 mb-2">Cambia un lunes o jueves puntual sin mover la rotación.</p><div class="space-y-2"><input type="date" value="${swapF.date}" onchange="swapF.date=this.value" class="w-full border border-gray-300 rounded-lg p-2 text-sm">${sel(swapF.to, "swapF.to=this.value")}<label class="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" ${swapF.both ? "checked" : ""} onchange="swapF.both=this.checked" class="h-4 w-4"> Ceder lunes y jueves de esa semana</label><button onclick="ceder()" class="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg text-sm">Ceder turno</button></div>`);
   const rg = rangos();
   const ausCard = card(`<h2 class="text-lg font-bold text-gray-800 mb-1">Fuera de casa (solo basura)</h2><div class="space-y-2">${sel(ausF.p, "ausF.p=this.value")}<div class="grid grid-cols-2 gap-2"><input type="date" value="${ausF.d1}" onchange="ausF.d1=this.value" class="border border-gray-300 rounded-lg p-2 text-sm"><input type="date" value="${ausF.d2}" onchange="ausF.d2=this.value" class="border border-gray-300 rounded-lg p-2 text-sm"></div><button onclick="addAus()" class="w-full bg-amber-600 text-white font-medium py-2 rounded-lg text-sm">Registrar ausencia</button></div>` + (rg.length ? `<div class="mt-3 space-y-1">${rg.map(x => `<div class="flex justify-between items-center text-sm bg-gray-50 rounded p-2"><span><b>${H[x.p]}</b> · ${x.d1} → ${x.d2}</span><button onclick="delAus(${x.id})" class="text-xs font-bold ${armed === "aus" + x.id ? "text-white bg-red-600 px-2 py-1 rounded" : "text-red-600"}">${armed === "aus" + x.id ? "Confirmar" : "Quitar"}</button></div>`).join("")}</div>` : ""));
