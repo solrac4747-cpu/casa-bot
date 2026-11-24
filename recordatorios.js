@@ -33,12 +33,13 @@ function ordenDoc(id, d) {
   return x;
 }
 
-const PAGO_IMELDA_DOW = 2;  // Martes
-const HORA_BASURA = 20;     // 8:00 PM Mexicali (un día antes: domingo y miércoles)
-const HORA_IMELDA = 16;     // 4:00 PM Mexicali (un día antes: lunes)
-const HORA_RENTA = 9;       // 9:00 AM Mexicali
-const HORA_COMPRAS = 14;    // 2:00 PM Mexicali (liquidación compras)
-const HORA_RECIBOS = 9;     // 9:00 AM Mexicali (servicios y recibos)
+const PAGO_IMELDA_DOW = 2;    // Martes
+const HORA_BASURA = 20;       // 8:00 PM Mexicali (un día antes: domingo y miércoles)
+const HORA_IMELDA = 16;       // 4:00 PM Mexicali (un día antes: lunes)
+const HORA_RENTA = 9;         // 9:00 AM Mexicali
+const HORA_COMPRAS = 14;      // 2:00 PM Mexicali (liquidación compras)
+const HORA_RECIBOS = 9;       // 9:00 AM Mexicali (servicios y recibos)
+const HORA_DOUBLE_CHECK = 21; // 9:00 PM Mexicali (recordatorio de confirmaciones pendientes)
 
 /* ---------- Fechas ---------- */
 const mod4 = n => ((n % 4) + 4) % 4;
@@ -177,6 +178,26 @@ function planear(DBin, now) {
       });
     }
   }
+
+  // Recordatorio de double check pendiente (9:00 PM, etiquetando solo a otros cuartos)
+  if (now.hour >= HORA_DOUBLE_CHECK) {
+    const wkHoy = mondayOf(now.date);
+    const Whoy = DB["sem-" + wkHoy] || {};
+    [
+      ["basuraLun", "Basura (Lunes)"],
+      ["basuraJue", "Basura (Jueves)"],
+      ["limpieza", "Pago a Imelda"]
+    ].forEach(([k, label]) => {
+      const pend = Whoy[k + "Pend"];
+      if (!pend || Whoy[k]) return;
+      const puedenConfirmar = [0, 1, 2, 3].filter(i => i !== pend.group);
+      out.push({
+        key: `${now.date}-dc-${k}`,
+        texto: `⏳ *Confirmación pendiente*: *${pend.by}* marcó *${label}* (${pend.at}) y nadie ha confirmado todavía.\n\nAlguien entre a la app para confirmar o rechazar: ${puedenConfirmar.map(tk).join(", ")}.`
+      });
+    });
+  }
+
   return out;
 }
 
@@ -277,8 +298,12 @@ async function verificarBoilerGitHub(sb, enviar, TEL) {
           body: JSON.stringify([{ id: "global", data: g }])
         });
 
-        // 3. Enviamos la notificación al grupo etiquetando a todos
-        const mensajeObj = armar("⚠️ *ALERTA DE BOILER*\nEl boiler lleva más de 30 minutos encendido y sigue prendido. ¿Alguien lo olvidó?\n\n{{TODOS}}", TEL);
+        // 3. Enviamos la notificación mencionando quién lo prendió y etiquetando a todos
+        const quien = g.boilerBy
+          ? `*${g.boilerBy}* encendió el boiler hace más de 30 minutos y sigue prendido.`
+          : "El boiler lleva más de 30 minutos encendido y sigue prendido.";
+
+        const mensajeObj = armar(`⚠️ *ALERTA DE BOILER*\n${quien} ¿Alguien lo olvidó?\n\n{{TODOS}}`, TEL);
         await enviar(mensajeObj);
         console.log("Alerta de boiler enviada y registrada correctamente.");
       }
