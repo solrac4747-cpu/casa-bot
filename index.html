@@ -307,6 +307,12 @@ async function cambiarPassword(ev) {
     return;
   }
 
+  const claveUser = currentUser && currentUser.email ? currentUser.email.split("@")[0] : quienSoy().toLowerCase();
+  mut("passwords", d => {
+    d[claveUser] = true;
+  });
+  registrarHistorial("Cambió su contraseña", "Actualizó su contraseña personal");
+
   $("new-pass-1").value = "";
   $("new-pass-2").value = "";
   msg.textContent = "✅ Contraseña actualizada. Solo tú la conoces.";
