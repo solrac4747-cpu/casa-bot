@@ -313,6 +313,67 @@ async function verificarBoilerGitHub(sb, enviar, TEL) {
   }
 }
 
+/* ---------- Alerta por hora de contraseña temporal pendiente (Bryan y Uriel separados) ---------- */
+const CUENTAS_INDIVIDUALES = [
+  { key: "bryan",   telKey: "Bryan",   label: "Bryan" },
+  { key: "uriel",   telKey: "Uriel",   label: "Uriel" },
+  { key: "ricardo", telKey: "Ricardo", label: "Ricardo" },
+  { key: "erick",   telKey: "Erick",   label: "Erick" },
+  { key: "carlos",  telKey: "Carlos",  label: "Carlos" }
+];
+
+function armarConClaves(textoBase, TEL, telKeys) {
+  const jids = [];
+  const tags = [];
+  const vistos = new Set();
+
+  telKeys.forEach(k => {
+    const raw = TEL[k];
+    const nums = (Array.isArray(raw) ? raw : raw ? [raw] : [])
+      .map(n => String(n).replace(/\D/g, ""))
+      .filter(Boolean);
+
+    if (!nums.length) {
+      tags.push(k);
+      return;
+    }
+
+    nums.forEach(n => {
+      if (n.startsWith("1") && n.length === 11) {
+        if (vistos.has(n)) return;
+        vistos.add(n);
+        jids.push(`${n}@s.whatsapp.net`, n);
+        tags.push(`@${n}`);
+      } else {
+        const diez = n.slice(-10);
+        if (vistos.has(diez)) return;
+        vistos.add(diez);
+        jids.push(`521${diez}@s.whatsapp.net`, `52${diez}@s.whatsapp.net`, `521${diez}`, `52${diez}`);
+        tags.push(`@521${diez}`);
+      }
+    });
+  });
+
+  return {
+    texto: textoBase.replace("{{FALTANTES}}", tags.join(", ")),
+    nums: [...new Set(jids)]
+  };
+}
+
+async function verificarPasswordsPendientes(DB, enviar, TEL) {
+  const pw = DB.passwords || {};
+  const pendientes = CUENTAS_INDIVIDUALES.filter(u => !pw[u.key]);
+  if (!pendientes.length) return;
+
+  const msg = armarConClaves(
+    `🔐 *Recordatorio de contraseña*\nAún falta cambiar la contraseña temporal (\`casa1234\`) en la app: {{FALTANTES}}.\n\nEntren, toquen su nombre arriba a la izquierda (👤) y pongan su contraseña personal.`,
+    TEL,
+    pendientes.map(u => u.telKey)
+  );
+  await enviar(msg);
+  console.log("Recordatorio de contraseña pendiente enviado para:", pendientes.map(u => u.key).join(", "));
+}
+
 /* ---------- Ejecución principal ---------- */
 async function run() {
   const { SUPABASE_URL: U, SUPABASE_KEY: K, GRUPO_ID, TELEFONOS, PRUEBA, DRY_RUN } = process.env;
@@ -383,6 +444,10 @@ async function run() {
   const res = await sb("estado?select=id,data");
   if (!res.ok) throw new Error("Supabase: " + res.status + " " + await res.text());
   const DB = {}; (await res.json()).forEach(r => { DB[r.id] = ordenDoc(r.id, r.data); });
+
+  // 2. Revisión horaria de contraseñas temporales pendientes (Bryan y Uriel separados)
+  await verificarPasswordsPendientes(DB, enviar, TEL);
+
   const sent = (DB.bot && DB.bot.sent) || {};
   const now = ahora();
   let cambio = false;
