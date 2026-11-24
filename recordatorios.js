@@ -313,7 +313,7 @@ async function verificarBoilerGitHub(sb, enviar, TEL) {
   }
 }
 
-/* ---------- Alerta por hora de contraseña temporal pendiente (Bryan y Uriel separados) ---------- */
+/* ---------- Alerta cada 30 min de contraseña temporal pendiente (Bryan y Uriel separados) ---------- */
 const CUENTAS_INDIVIDUALES = [
   { key: "bryan",   telKey: "Bryan",   label: "Bryan" },
   { key: "uriel",   telKey: "Uriel",   label: "Uriel" },
@@ -321,6 +321,7 @@ const CUENTAS_INDIVIDUALES = [
   { key: "erick",   telKey: "Erick",   label: "Erick" },
   { key: "carlos",  telKey: "Carlos",  label: "Carlos" }
 ];
+const INTERVALO_PASS_MIN = 30;
 
 function armarConClaves(textoBase, TEL, telKeys) {
   const jids = [];
@@ -360,10 +361,19 @@ function armarConClaves(textoBase, TEL, telKeys) {
   };
 }
 
-async function verificarPasswordsPendientes(DB, enviar, TEL) {
+async function verificarPasswordsPendientes(DB, sent, enviar, TEL) {
   const pw = DB.passwords || {};
   const pendientes = CUENTAS_INDIVIDUALES.filter(u => !pw[u.key]);
-  if (!pendientes.length) return;
+  if (!pendientes.length) return false;
+
+  const ahoraMs = Date.now();
+  const ultimoEnvioMs = Number(sent.lastPassAlertAt || 0);
+  const minutosTranscurridos = (ahoraMs - ultimoEnvioMs) / (1000 * 60);
+
+  if (ultimoEnvioMs && minutosTranscurridos < INTERVALO_PASS_MIN) {
+    console.log(`Alerta de contraseña omitida: faltan ${(INTERVALO_PASS_MIN - minutosTranscurridos).toFixed(1)} min para cumplir 30 min.`);
+    return false;
+  }
 
   const msg = armarConClaves(
     `🔐 *Recordatorio de contraseña*\nAún falta cambiar la contraseña temporal (\`casa1234\`) en la app: {{FALTANTES}}.\n\nEntren, toquen su nombre arriba a la izquierda (👤) y pongan su contraseña personal.`,
@@ -371,7 +381,9 @@ async function verificarPasswordsPendientes(DB, enviar, TEL) {
     pendientes.map(u => u.telKey)
   );
   await enviar(msg);
-  console.log("Recordatorio de contraseña pendiente enviado para:", pendientes.map(u => u.key).join(", "));
+  sent.lastPassAlertAt = ahoraMs;
+  console.log("Recordatorio de contraseña pendiente enviado (ventana 30 min) para:", pendientes.map(u => u.key).join(", "));
+  return true;
 }
 
 /* ---------- Ejecución principal ---------- */
@@ -444,15 +456,16 @@ async function run() {
   const res = await sb("estado?select=id,data");
   if (!res.ok) throw new Error("Supabase: " + res.status + " " + await res.text());
   const DB = {}; (await res.json()).forEach(r => { DB[r.id] = ordenDoc(r.id, r.data); });
-
-  // 2. Revisión horaria de contraseñas temporales pendientes (Bryan y Uriel separados)
-  await verificarPasswordsPendientes(DB, enviar, TEL);
-
   const sent = (DB.bot && DB.bot.sent) || {};
   const now = ahora();
   let cambio = false;
 
   console.log(`Diagnóstico: hora local ${now.hour}:00 (${now.date}) · compras pendientes: ${calcularLiquidacion((DB["mes-" + now.month] || {}).shop).length}`);
+
+  // 2. Revisión de contraseñas temporales pendientes cada 30 min (Bryan y Uriel separados)
+  if (await verificarPasswordsPendientes(DB, sent, enviar, TEL)) {
+    cambio = true;
+  }
 
   for (const m of planear(DB, now)) {
     if (sent[m.key]) continue;
@@ -486,7 +499,9 @@ async function run() {
   // Guardar en Supabase registro de recordatorios ya despachados para evitar repeticiones
   if (cambio && !DRY_RUN) {
     const corte = addDays(now.date, -40).slice(0, 7);
-    Object.keys(sent).forEach(k => { if (k.slice(0, 7) < corte) delete sent[k]; });
+    Object.keys(sent).forEach(k => {
+      if (k !== "lastPassAlertAt" && k.slice(0, 7) < corte) delete sent[k];
+    });
     await sb("estado", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates" },
