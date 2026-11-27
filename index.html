@@ -594,10 +594,11 @@ function toggleTask(k) {
     return;
   }
 
-  const { hour, str } = horaMexicali();
-  const esBasura = k === "basuraLun" || k === "basuraJue";
-  const esImelda = k === "limpieza";
-  const requiereDoubleCheck = (esBasura && hour >= 12) || (esImelda && hour >= 15);
+  const { str } = horaMexicali();
+  const fechaTarea = k === "basuraLun" ? viewWeek
+    : k === "basuraJue" ? addDays(viewWeek, 3)
+    : addDays(viewWeek, 1); // martes para Imelda
+  const requiereDoubleCheck = hoyStr() > fechaTarea;
 
   if (requiereDoubleCheck) {
     mut(W_(), d => {
@@ -610,7 +611,7 @@ function toggleTask(k) {
     });
     registrarHistorial("Marcó fuera de horario (pendiente)", `${nombreTarea(k)} · ${str}`);
     toast("⏳ Enviado a confirmación de otro cuarto");
-    notificarGrupoCasa(`⏳ *Double check requerido*: *${quienSoy()}* marcó *${nombreTarea(k)}* a las ${str}. Alguien de otro cuarto entre a la app para confirmar.`);
+    notificarGrupoCasa(`⏳ *Double check requerido*: *${quienSoy()}* marcó *${nombreTarea(k)}* al día siguiente (${str}). Alguien de otro cuarto entre a la app para confirmar.`);
     return;
   }
 
@@ -1061,7 +1062,7 @@ function render(local) {
     + card(`<div class="flex justify-between items-center mb-2"><h2 class="text-lg font-bold text-gray-800">Turno semanal</h2><span class="text-sm font-black text-indigo-600">${new Date().toLocaleDateString("es-MX", { weekday: "long" }).toUpperCase()} ${new Date().getDate()}</span></div>
       <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-lg"><span class="text-xs font-semibold text-indigo-600 uppercase">Responsable de la semana</span>
       ${bossSel(weekBoss(viewWeek), "setWeekBoss", "text-xl font-black text-indigo-900 mt-0.5")}
-      <p class="text-xs text-gray-500 mt-1">Le paga a Imelda y saca la basura lunes y jueves. Si se marca basura después de las 12 PM o Imelda después de las 3 PM, requiere confirmación de otro cuarto.</p></div>
+      <p class="text-xs text-gray-500 mt-1">Le paga a Imelda y saca la basura lunes y jueves. Si se marca a partir del día siguiente (después de las 11:59 PM del día que correspondía), requiere confirmación de otro cuarto.</p></div>
       <div class="mt-3 space-y-2">${monRow}${thuRow}${imeldaRow}</div>`)
     + boilerCard
     + garrCard + swapCard + ausCard + deudaCard + histCard;
