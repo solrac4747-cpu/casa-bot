@@ -33,13 +33,14 @@ function ordenDoc(id, d) {
   return x;
 }
 
-const PAGO_IMELDA_DOW = 2;    // Martes
-const HORA_BASURA = 20;       // 8:00 PM Mexicali (un día antes: domingo y miércoles)
-const HORA_IMELDA = 16;       // 4:00 PM Mexicali (un día antes: lunes)
-const HORA_RENTA = 9;         // 9:00 AM Mexicali
-const HORA_COMPRAS = 14;      // 2:00 PM Mexicali (liquidación compras)
-const HORA_RECIBOS = 9;       // 9:00 AM Mexicali (servicios y recibos)
-const HORA_DOUBLE_CHECK = 21; // 9:00 PM Mexicali (recordatorio de confirmaciones pendientes)
+const PAGO_IMELDA_DOW = 2;      // Martes
+const HORA_BASURA = 20;         // 8:00 PM Mexicali (un día antes: domingo y miércoles)
+const HORA_BASURA_REVISION = 9; // 9:00 AM Mexicali (al día siguiente: martes y viernes)
+const HORA_IMELDA = 16;         // 4:00 PM Mexicali (un día antes: lunes)
+const HORA_RENTA = 9;           // 9:00 AM Mexicali
+const HORA_COMPRAS = 14;        // 2:00 PM Mexicali (liquidación compras)
+const HORA_RECIBOS = 9;         // 9:00 AM Mexicali (servicios y recibos)
+const HORA_DOUBLE_CHECK = 21;   // 9:00 PM Mexicali (recordatorio de confirmaciones pendientes)
 
 /* ---------- Fechas ---------- */
 const mod4 = n => ((n % 4) + 4) % 4;
@@ -129,6 +130,23 @@ function planear(DBin, now) {
       else if (x.swap) t += ` (Cambio puntual; le tocaba a ${H[x.base]}.)`;
       else if (x.base !== weekBoss(wk)) t += " (Compensación por turno no sacado.)";
       out.push({ key: `${manana}-${k === "L" ? "lun" : "jue"}`, texto: t });
+    }
+  }
+
+  // Revisión de basura no marcada: al día siguiente (martes para lunes, viernes para jueves)
+  const ayer = addDays(now.date, -1), dowAyer = dowOf(ayer), wkAyer = mondayOf(ayer);
+  if (now.hour >= HORA_BASURA_REVISION && (dowAyer === 1 || dowAyer === 4) && wkAyer >= G().aW) {
+    const k = dowAyer === 1 ? "L" : "J";
+    const field = k === "L" ? "basuraLun" : "basuraJue";
+    const Wayer = DB["sem-" + wkAyer] || {};
+    const x = slots().S[wkAyer + k];
+
+    if (x && !Wayer[field] && !Wayer[field + "Pend"]) {
+      const otrosCuartos = [0, 1, 2, 3].filter(i => i !== x.o);
+      out.push({
+        key: `${ayer}-rev-${k === "L" ? "lun" : "jue"}`,
+        texto: `⚠️ *Basura sin marcar (${k === "L" ? "Lunes" : "Jueves"})*: ${tk(x.o)} no marcó que sacó la basura ayer.\n\n👀 Revisen si sí la sacó (${otrosCuartos.map(tk).join(", ")}). Si sí lo hizo, que la marque en la app y alguien de otro cuarto confirme (double check); si no, se le recorrerá el castigo para la próxima semana.`
+      });
     }
   }
 
